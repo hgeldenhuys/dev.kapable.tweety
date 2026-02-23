@@ -11,6 +11,12 @@ import { secretsCheck } from "./checks/secrets";
 import { documentsCheck } from "./checks/documents";
 import { webhooksCheck } from "./checks/webhooks";
 import { schedulesCheck } from "./checks/schedules";
+import { aiChatCheck } from "./checks/ai-chat";
+import { aiImageCheck } from "./checks/ai-image";
+import { aiVoiceCheck } from "./checks/ai-voice";
+import { auditLogsCheck } from "./checks/audit-logs";
+import { usageCheck } from "./checks/usage";
+import { storageCheck } from "./checks/storage";
 
 /**
  * A registered check: name + function that produces a CheckResult.
@@ -32,6 +38,12 @@ const registry: RegisteredCheck[] = [
   { name: "documents", fn: documentsCheck },
   { name: "webhooks", fn: webhooksCheck },
   { name: "schedules", fn: schedulesCheck },
+  { name: "ai-chat", fn: aiChatCheck },
+  { name: "ai-image", fn: aiImageCheck },
+  { name: "ai-voice", fn: aiVoiceCheck },
+  { name: "audit-logs", fn: auditLogsCheck },
+  { name: "usage", fn: usageCheck },
+  { name: "storage", fn: storageCheck },
 ];
 
 /**
