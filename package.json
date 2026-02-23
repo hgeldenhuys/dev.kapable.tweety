@@ -1,0 +1,13 @@
+{
+  "name": "tweety",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "bun src/index.ts",
+    "dev": "bun --watch src/index.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/bun": "^1.2.0"
+  }
+}
