@@ -298,7 +298,16 @@ function buildDashboardHtml(): string {
 
       try {
         const resp = await fetch('/canary');
-        const data = await resp.json();
+        const text = await resp.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          throw new Error(resp.status + ' — ' + text.slice(0, 200));
+        }
+        if (data.error) {
+          throw new Error(data.error);
+        }
         renderReport(data);
       } catch (err) {
         const c = document.getElementById('report-container');
