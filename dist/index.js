@@ -2077,6 +2077,253 @@ function buildResult13(steps, checkStart, errorMsg) {
   };
 }
 
+// src/canary/checks/functions.ts
+var FUNCTION_NAME = "canary-function";
+var FUNCTION_SOURCE = 'export function handle(input) { return { ok: true, echo: input.msg || "CANARY_OK" }; }';
+function stepFromResponse14(name, resp, expectedStatus, validate) {
+  const expected = Array.isArray(expectedStatus) ? expectedStatus : [expectedStatus];
+  const step = {
+    name,
+    status: "pass",
+    durationMs: resp.durationMs
+  };
+  if (resp.error) {
+    step.status = "fail";
+    step.error = resp.error;
+    return step;
+  }
+  if (!expected.includes(resp.status)) {
+    step.status = "fail";
+    step.error = `Expected status ${expected.join("|")}, got ${resp.status}`;
+    step.detail = resp.rawText.slice(0, 300);
+    return step;
+  }
+  if (validate) {
+    const validationError = validate(resp.data);
+    if (validationError) {
+      step.status = "fail";
+      step.error = validationError;
+    }
+  }
+  return step;
+}
+async function functionsCheck(http) {
+  const appId = process.env.KAPABLE_APP_ID ?? "";
+  const envName = process.env.KAPABLE_ENV_NAME ?? "production";
+  if (!appId) {
+    return {
+      name: "functions",
+      status: "skip",
+      durationMs: 0,
+      steps: [{
+        name: "KAPABLE_APP_ID not set",
+        status: "skip",
+        durationMs: 0,
+        detail: "Functions check requires KAPABLE_APP_ID env var"
+      }]
+    };
+  }
+  const functionsPath = `/v1/apps/${appId}/environments/${envName}/functions`;
+  const steps = [];
+  const checkStart = performance.now();
+  let functionId = null;
+  try {
+    const preList = await http.get(functionsPath, "admin-key");
+    if (preList.data && typeof preList.data === "object") {
+      const listObj = preList.data;
+      const items = Array.isArray(listObj.data) ? listObj.data : Array.isArray(preList.data) ? preList.data : [];
+      for (const item of items) {
+        const fn = item;
+        if (fn.name === FUNCTION_NAME && fn.id) {
+          const delResp = await http.delete(`${functionsPath}/${fn.id}`, "admin-key");
+          if (delResp.status === 204 || delResp.status === 200) {
+            steps.push({
+              name: "pre-cleanup: DELETE canary-function (existed from previous run)",
+              status: "pass",
+              durationMs: delResp.durationMs,
+              detail: "Stale function cleaned up"
+            });
+          }
+        }
+      }
+    }
+    const createResp = await http.post(functionsPath, {
+      name: FUNCTION_NAME,
+      source_code: FUNCTION_SOURCE,
+      runtime: "javascript",
+      handler_name: "handle",
+      status: "active"
+    }, "admin-key");
+    steps.push(stepFromResponse14("POST .../functions (create + compile)", createResp, 201, (data) => {
+      if (!data || typeof data !== "object")
+        return "Response is not an object";
+      const obj = data;
+      const inner = obj.data ?? obj;
+      if (!inner || typeof inner !== "object")
+        return "Response missing 'data' wrapper";
+      const fn = inner;
+      if (!fn.id)
+        return "Response missing 'id' field";
+      if (fn.name !== FUNCTION_NAME) {
+        return `name mismatch: expected "${FUNCTION_NAME}", got "${fn.name}"`;
+      }
+      if (!fn.compiled_at)
+        return "Function was not compiled (compiled_at is null)";
+      functionId = String(fn.id);
+      return null;
+    }));
+    if (!functionId) {
+      return buildResult14(steps, checkStart, "Cannot proceed without function ID");
+    }
+    const createData = createResp.data?.data;
+    if (createData) {
+      const lastStep = steps[steps.length - 1];
+      if (lastStep.status === "pass") {
+        lastStep.detail = `version=${createData.version}, runtime=${createData.runtime}, fuel_limit=${createData.fuel_limit}`;
+      }
+    }
+    const listResp = await http.get(functionsPath, "admin-key");
+    steps.push(stepFromResponse14("GET .../functions (verify in list)", listResp, 200, (data) => {
+      if (!data || typeof data !== "object")
+        return "Response is not an object";
+      const obj = data;
+      const items = Array.isArray(obj.data) ? obj.data : [];
+      let found = false;
+      for (const item of items) {
+        const fn = item;
+        if (String(fn.id) === functionId) {
+          found = true;
+          break;
+        }
+      }
+      if (!found)
+        return `Function ${functionId} not found in list`;
+      return null;
+    }));
+    const invokeResp = await http.post(`${functionsPath}/${functionId}/invoke`, { input: { msg: "CANARY_OK" } }, "admin-key");
+    let invocationId = null;
+    steps.push(stepFromResponse14("POST .../invoke (trigger execution)", invokeResp, 201, (data) => {
+      if (!data || typeof data !== "object")
+        return "Response is not an object";
+      const obj = data;
+      const inner = obj.data ?? obj;
+      if (!inner || typeof inner !== "object")
+        return "Response missing 'data' wrapper";
+      const inv = inner;
+      if (!inv.id)
+        return "Response missing invocation 'id'";
+      if (inv.status !== "queued" && inv.status !== "running" && inv.status !== "success") {
+        return `Unexpected invocation status: ${inv.status}`;
+      }
+      invocationId = String(inv.id);
+      return null;
+    }));
+    if (invocationId) {
+      let pollResult = null;
+      const pollStart = performance.now();
+      for (let attempt = 1;attempt <= 10; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const pollResp = await http.get(`${functionsPath}/${functionId}/invocations?limit=1`, "admin-key");
+        if (pollResp.error || pollResp.status !== 200)
+          continue;
+        const pollData = pollResp.data;
+        const invocations = Array.isArray(pollData?.data) ? pollData.data : [];
+        if (invocations.length === 0)
+          continue;
+        const inv = invocations[0];
+        const invStatus = String(inv.status);
+        if (invStatus === "success") {
+          const output = inv.output_payload;
+          const pollDuration = Math.round(performance.now() - pollStart);
+          pollResult = {
+            name: `GET .../invocations (poll attempt ${attempt})`,
+            status: "pass",
+            durationMs: pollDuration,
+            detail: `status=success, fuel=${inv.fuel_consumed}, output=${JSON.stringify(output).slice(0, 100)}`
+          };
+          if (!output || output.ok !== true) {
+            pollResult.status = "fail";
+            pollResult.error = `Expected output.ok=true, got ${JSON.stringify(output)}`;
+          } else if (output.echo !== "CANARY_OK") {
+            pollResult.status = "fail";
+            pollResult.error = `Expected output.echo="CANARY_OK", got "${output.echo}"`;
+          }
+          break;
+        }
+        if (invStatus === "error" || invStatus === "timeout") {
+          const pollDuration = Math.round(performance.now() - pollStart);
+          pollResult = {
+            name: `GET .../invocations (poll attempt ${attempt})`,
+            status: "fail",
+            durationMs: pollDuration,
+            error: `Invocation ${invStatus}: ${inv.error_message || "no error message"}`
+          };
+          break;
+        }
+      }
+      if (!pollResult) {
+        const pollDuration = Math.round(performance.now() - pollStart);
+        pollResult = {
+          name: "GET .../invocations (poll timeout)",
+          status: "fail",
+          durationMs: pollDuration,
+          error: "Invocation did not complete within 10 poll attempts (10s)"
+        };
+      }
+      steps.push(pollResult);
+    }
+    const deleteResp = await http.delete(`${functionsPath}/${functionId}`, "admin-key");
+    steps.push(stepFromResponse14(`DELETE .../functions/${functionId} (cleanup)`, deleteResp, 204));
+    if (deleteResp.status === 204) {
+      functionId = null;
+    }
+  } catch (err) {
+    steps.push({
+      name: "unexpected error",
+      status: "fail",
+      durationMs: 0,
+      error: err instanceof Error ? err.message : String(err)
+    });
+  } finally {
+    if (functionId) {
+      try {
+        const cleanupResp = await http.delete(`${functionsPath}/${functionId}`, "admin-key");
+        steps.push(stepFromResponse14(`DELETE .../functions/${functionId} (finally cleanup)`, cleanupResp, [204, 404]));
+      } catch (cleanupErr) {
+        steps.push({
+          name: "cleanup: delete function",
+          status: "fail",
+          durationMs: 0,
+          error: `Cleanup failed: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`
+        });
+      }
+    }
+  }
+  return buildResult14(steps, checkStart);
+}
+function buildResult14(steps, checkStart, errorMsg) {
+  const totalDuration = Math.round(performance.now() - checkStart);
+  let hasFail = false;
+  let hasSkip = false;
+  let hasPass = false;
+  for (const step of steps) {
+    if (step.status === "fail")
+      hasFail = true;
+    else if (step.status === "skip")
+      hasSkip = true;
+    else
+      hasPass = true;
+  }
+  const status = hasFail ? "fail" : !hasPass && hasSkip ? "skip" : hasSkip ? "warn" : "pass";
+  return {
+    name: "functions",
+    status,
+    durationMs: totalDuration,
+    steps,
+    error: errorMsg
+  };
+}
+
 // src/canary/runner.ts
 var registry = [
   { name: "health", fn: healthCheck },
@@ -2092,7 +2339,8 @@ var registry = [
   { name: "ai-voice", fn: aiVoiceCheck },
   { name: "audit-logs", fn: auditLogsCheck },
   { name: "usage", fn: usageCheck },
-  { name: "storage", fn: storageCheck }
+  { name: "storage", fn: storageCheck },
+  { name: "functions", fn: functionsCheck }
 ];
 async function runAllChecks() {
   const http = createHttpClient();

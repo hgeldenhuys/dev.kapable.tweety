@@ -17,6 +17,7 @@ import { aiVoiceCheck } from "./checks/ai-voice";
 import { auditLogsCheck } from "./checks/audit-logs";
 import { usageCheck } from "./checks/usage";
 import { storageCheck } from "./checks/storage";
+import { functionsCheck } from "./checks/functions";
 
 /**
  * A registered check: name + function that produces a CheckResult.
@@ -44,6 +45,7 @@ const registry: RegisteredCheck[] = [
   { name: "audit-logs", fn: auditLogsCheck },
   { name: "usage", fn: usageCheck },
   { name: "storage", fn: storageCheck },
+  { name: "functions", fn: functionsCheck },
 ];
 
 /**
