@@ -117,6 +117,7 @@ function buildDashboardHtml(): string {
     .summary-card .label { font-size: 0.75rem; color: #737373; text-transform: uppercase; margin-top: 0.25rem; }
     .status-pass { color: #4ade80; }
     .status-fail { color: #f87171; }
+    .status-warn { color: #fb923c; }
     .status-skip { color: #fbbf24; }
     .timestamp { text-align: center; color: #737373; font-size: 0.8rem; margin-bottom: 1.5rem; }
     .check {
@@ -143,6 +144,7 @@ function buildDashboardHtml(): string {
     }
     .dot-pass { background: #4ade80; }
     .dot-fail { background: #f87171; }
+    .dot-warn { background: #fb923c; }
     .dot-skip { background: #fbbf24; }
     .check-name { font-weight: 600; flex-grow: 1; }
     .check-duration { color: #737373; font-size: 0.8rem; }
@@ -224,6 +226,7 @@ function buildDashboardHtml(): string {
       html += '<div class="summary">';
       html += '<div class="summary-card"><div class="value status-pass">' + r.summary.pass + '</div><div class="label">Pass</div></div>';
       html += '<div class="summary-card"><div class="value status-fail">' + r.summary.fail + '</div><div class="label">Fail</div></div>';
+      html += '<div class="summary-card"><div class="value status-warn">' + r.summary.warn + '</div><div class="label">Warn</div></div>';
       html += '<div class="summary-card"><div class="value status-skip">' + r.summary.skip + '</div><div class="label">Skip</div></div>';
       html += '<div class="summary-card"><div class="value" style="color:#e5e5e5">' + r.summary.total + '</div><div class="label">Total</div></div>';
       html += '</div>';
@@ -249,6 +252,7 @@ function buildDashboardHtml(): string {
           const st = ch.steps[j];
           const icon = st.status === 'pass' ? '<span style="color:#4ade80">&#10003;</span>'
                      : st.status === 'fail' ? '<span style="color:#f87171">&#10007;</span>'
+                     : st.status === 'warn' ? '<span style="color:#fb923c">&#9888;</span>'
                      : '<span style="color:#fbbf24">&#9679;</span>';
           html += '<div class="step">';
           html += '<span class="step-icon">' + icon + '</span>';
