@@ -11,9 +11,9 @@ const META_PATH = `/v1/_meta/tables/${TABLE_NAME}`;
 
 const TABLE_SCHEMA = {
   columns: [
-    { name: "species", col_type: "text" },
-    { name: "spotted_at", col_type: "timestamptz" },
-    { name: "count", col_type: "integer" },
+    { name: "species", col_type: "text", nullable: true },
+    { name: "spotted_at", col_type: "timestamptz", nullable: true },
+    { name: "count", col_type: "integer", nullable: true },
   ],
 };
 

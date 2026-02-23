@@ -69,6 +69,7 @@ export async function togglesCheck(http: HttpClient): Promise<CheckResult> {
         name: FLAG_NAME,
         description: "Canary test toggle",
         enabled: true,
+        default_value: true,
       },
       "admin-key",
     );
