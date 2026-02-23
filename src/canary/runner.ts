@@ -45,7 +45,7 @@ const registry: RegisteredCheck[] = [
   { name: "audit-logs", fn: auditLogsCheck },
   { name: "usage", fn: usageCheck },
   { name: "storage", fn: storageCheck },
-  { name: "functions", fn: functionsCheck },
+  // { name: "functions", fn: functionsCheck }, // Disabled: WASM compilation crashes Bun in container
 ];
 
 /**
