@@ -131,13 +131,13 @@ export async function tokensCheck(http: HttpClient): Promise<CheckResult> {
           }
         }
 
-        // Token should either not appear or be marked as revoked
+        // Token should either not appear or have revoked_at set
         for (const t of tokens) {
           const tok = t as Record<string, unknown>;
           const matchesJti = String(tok.jti) === tokenJti || String(tok.id) === tokenJti;
           if (matchesJti) {
-            // If it appears, it should be marked revoked
-            if (tok.revoked === true || tok.status === "revoked") {
+            // If it appears, it should be marked revoked (revoked_at non-null)
+            if (tok.revoked_at != null || tok.revoked === true || tok.status === "revoked") {
               return null; // OK -- present but revoked
             }
             return `Token ${tokenJti} still appears in list and is not marked revoked`;

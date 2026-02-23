@@ -52,7 +52,7 @@ export async function togglesCheck(http: HttpClient): Promise<CheckResult> {
 
   try {
     // Pre-cleanup: delete flag if it exists from a previous failed run
-    const preClean = await http.delete(`${TOGGLES_PATH}/${FLAG_NAME}`, "api-key");
+    const preClean = await http.delete(`${TOGGLES_PATH}/${FLAG_NAME}`, "admin-key");
     if (preClean.status === 200 || preClean.status === 204) {
       steps.push({
         name: "pre-cleanup: DELETE canary-flag (existed from previous run)",
@@ -70,7 +70,7 @@ export async function togglesCheck(http: HttpClient): Promise<CheckResult> {
         description: "Canary test toggle",
         enabled: true,
       },
-      "api-key",
+      "admin-key",
     );
     steps.push(
       stepFromResponse("POST /v1/feature-toggles (create flag)", createResp, [200, 201]),
@@ -82,7 +82,7 @@ export async function togglesCheck(http: HttpClient): Promise<CheckResult> {
     }
 
     // Step 2: Get flag by name
-    const getResp = await http.get(`${TOGGLES_PATH}/${FLAG_NAME}`, "api-key");
+    const getResp = await http.get(`${TOGGLES_PATH}/${FLAG_NAME}`, "admin-key");
     steps.push(
       stepFromResponse(`GET /v1/feature-toggles/${FLAG_NAME} (verify created)`, getResp, 200, (data) => {
         if (!data || typeof data !== "object") return "Response is not an object";
@@ -96,7 +96,7 @@ export async function togglesCheck(http: HttpClient): Promise<CheckResult> {
     const eval1Resp = await http.post(
       `${TOGGLES_PATH}/evaluate`,
       { flag_name: FLAG_NAME },
-      "api-key",
+      "admin-key",
     );
     steps.push(
       stepFromResponse("POST /v1/feature-toggles/evaluate (expect enabled)", eval1Resp, 200, (data) => {
@@ -111,7 +111,7 @@ export async function togglesCheck(http: HttpClient): Promise<CheckResult> {
     const updateResp = await http.put(
       `${TOGGLES_PATH}/${FLAG_NAME}`,
       { enabled: false },
-      "api-key",
+      "admin-key",
     );
     steps.push(
       stepFromResponse(`PUT /v1/feature-toggles/${FLAG_NAME} (disable)`, updateResp, 200),
@@ -121,7 +121,7 @@ export async function togglesCheck(http: HttpClient): Promise<CheckResult> {
     const eval2Resp = await http.post(
       `${TOGGLES_PATH}/evaluate`,
       { flag_name: FLAG_NAME },
-      "api-key",
+      "admin-key",
     );
     steps.push(
       stepFromResponse("POST /v1/feature-toggles/evaluate (expect disabled)", eval2Resp, 200, (data) => {
@@ -142,7 +142,7 @@ export async function togglesCheck(http: HttpClient): Promise<CheckResult> {
     // Always clean up: delete flag
     if (flagCreated) {
       try {
-        const deleteResp = await http.delete(`${TOGGLES_PATH}/${FLAG_NAME}`, "api-key");
+        const deleteResp = await http.delete(`${TOGGLES_PATH}/${FLAG_NAME}`, "admin-key");
         steps.push(
           stepFromResponse(`DELETE /v1/feature-toggles/${FLAG_NAME} (cleanup)`, deleteResp, [200, 204, 404]),
         );
