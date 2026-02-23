@@ -172,14 +172,17 @@ export async function tokensCheck(http: HttpClient): Promise<CheckResult> {
 
 function buildResult(steps: StepResult[], checkStart: number, errorMsg?: string): CheckResult {
   const totalDuration = Math.round(performance.now() - checkStart);
-  let status: "pass" | "fail" | "skip" = "pass";
+  let hasFail = false;
+  let hasSkip = false;
+  let hasPass = false;
 
   for (const step of steps) {
-    if (step.status === "fail") {
-      status = "fail";
-      break;
-    }
+    if (step.status === "fail") hasFail = true;
+    else if (step.status === "skip") hasSkip = true;
+    else hasPass = true;
   }
+
+  const status = hasFail ? "fail" : !hasPass && hasSkip ? "skip" : hasSkip ? "warn" : "pass";
 
   return {
     name: "tokens",

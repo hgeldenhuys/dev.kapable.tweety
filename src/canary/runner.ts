@@ -75,17 +75,19 @@ export async function runAllChecks(): Promise<CanaryReport> {
 
   let pass = 0;
   let fail = 0;
+  let warn = 0;
   let skip = 0;
   for (const check of checks) {
     if (check.status === "pass") pass++;
     else if (check.status === "fail") fail++;
+    else if (check.status === "warn") warn++;
     else skip++;
   }
 
   return {
     timestamp: new Date().toISOString(),
     totalDurationMs,
-    summary: { pass, fail, skip, total: checks.length },
+    summary: { pass, fail, warn, skip, total: checks.length },
     checks,
   };
 }

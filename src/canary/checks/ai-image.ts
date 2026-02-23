@@ -132,24 +132,17 @@ export async function aiImageCheck(http: HttpClient): Promise<CheckResult> {
 
 function buildResult(steps: StepResult[], checkStart: number, errorMsg?: string): CheckResult {
   const totalDuration = Math.round(performance.now() - checkStart);
-  let status: "pass" | "fail" | "skip" = "pass";
-  let allSkip = true;
+  let hasFail = false;
+  let hasSkip = false;
+  let hasPass = false;
 
   for (const step of steps) {
-    if (step.status === "fail") {
-      status = "fail";
-      allSkip = false;
-      break;
-    }
-    if (step.status !== "skip") {
-      allSkip = false;
-    }
+    if (step.status === "fail") hasFail = true;
+    else if (step.status === "skip") hasSkip = true;
+    else hasPass = true;
   }
 
-  // If every step was skipped, the whole check is skip
-  if (allSkip && steps.length > 0) {
-    status = "skip";
-  }
+  const status = hasFail ? "fail" : !hasPass && hasSkip ? "skip" : hasSkip ? "warn" : "pass";
 
   return {
     name: "ai-image",

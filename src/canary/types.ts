@@ -1,7 +1,7 @@
 /**
  * Status of a check or step execution.
  */
-export type CheckStatus = "pass" | "fail" | "skip";
+export type CheckStatus = "pass" | "fail" | "warn" | "skip";
 
 /**
  * Result of a single step within a check (e.g. one API call).
@@ -25,7 +25,7 @@ export interface StepResult {
 export interface CheckResult {
   /** Check name (used as key in the registry) */
   name: string;
-  /** Aggregate status: "pass" only if all steps pass */
+  /** Aggregate status: "pass" if all pass, "warn" if some skip, "fail" if any fail, "skip" if all skip */
   status: CheckStatus;
   /** Total duration for all steps in this check */
   durationMs: number;
@@ -41,6 +41,7 @@ export interface CheckResult {
 export interface CanarySummary {
   pass: number;
   fail: number;
+  warn: number;
   skip: number;
   total: number;
 }
