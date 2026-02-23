@@ -2425,6 +2425,21 @@ var port = Number(process.env.PORT) || 3000;
 var hostname = "0.0.0.0";
 var lastReport = null;
 var isRunning = false;
+var runningStartedAt = 0;
+var MAX_LOCK_DURATION_MS = 120000;
+function acquireLock() {
+  if (isRunning) {
+    if (Date.now() - runningStartedAt > MAX_LOCK_DURATION_MS) {
+      console.warn(`[tweety] Force-clearing stale canary lock (held for ${Math.round((Date.now() - runningStartedAt) / 1000)}s)`);
+      isRunning = false;
+    } else {
+      return false;
+    }
+  }
+  isRunning = true;
+  runningStartedAt = Date.now();
+  return true;
+}
 function buildDashboardHtml() {
   const reportJson = lastReport ? JSON.stringify(lastReport) : "null";
   const checkNames = getCheckNames();
@@ -2717,10 +2732,9 @@ var server = Bun.serve({
       });
     }
     if (path === "/canary") {
-      if (isRunning) {
+      if (!acquireLock()) {
         return Response.json({ error: "Canary is already running. Please wait for it to finish." }, { status: 429 });
       }
-      isRunning = true;
       try {
         const report = await runAllChecks();
         lastReport = report;
@@ -2732,10 +2746,9 @@ var server = Bun.serve({
     const checkMatch = path.match(/^\/canary\/([a-z0-9-]+)$/);
     if (checkMatch) {
       const checkName = checkMatch[1];
-      if (isRunning) {
+      if (!acquireLock()) {
         return Response.json({ error: "Canary is already running. Please wait for it to finish." }, { status: 429 });
       }
-      isRunning = true;
       try {
         const result = await runCheck(checkName);
         if (!result) {
