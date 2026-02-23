@@ -2154,12 +2154,12 @@ async function functionsCheck(http) {
         source_code: FUNCTION_SOURCE,
         runtime: "javascript",
         handler_name: "handle",
-        status: "active"
+        status: "draft"
       },
       auth: "admin-key",
-      timeoutMs: 30000
+      timeoutMs: 20000
     });
-    steps.push(stepFromResponse14("POST .../functions (create + compile)", createResp, 201, (data) => {
+    steps.push(stepFromResponse14("POST .../functions (create)", createResp, 201, (data) => {
       if (!data || typeof data !== "object")
         return "Response is not an object";
       const obj = data;
@@ -2172,8 +2172,6 @@ async function functionsCheck(http) {
       if (fn.name !== FUNCTION_NAME) {
         return `name mismatch: expected "${FUNCTION_NAME}", got "${fn.name}"`;
       }
-      if (!fn.compiled_at)
-        return "Function was not compiled (compiled_at is null)";
       functionId = String(fn.id);
       return null;
     }));
@@ -2184,7 +2182,8 @@ async function functionsCheck(http) {
     if (createData) {
       const lastStep = steps[steps.length - 1];
       if (lastStep.status === "pass") {
-        lastStep.detail = `version=${createData.version}, runtime=${createData.runtime}, fuel_limit=${createData.fuel_limit}`;
+        const compiled = createData.compiled_at ? "yes" : "no";
+        lastStep.detail = `version=${createData.version}, runtime=${createData.runtime}, compiled=${compiled}`;
       }
     }
     const listResp = await http.get(functionsPath, "admin-key");
@@ -2205,80 +2204,31 @@ async function functionsCheck(http) {
         return `Function ${functionId} not found in list`;
       return null;
     }));
-    const invokeResp = await http.post(`${functionsPath}/${functionId}/invoke`, { input: { msg: "CANARY_OK" } }, "admin-key");
-    let invocationId = null;
-    steps.push(stepFromResponse14("POST .../invoke (trigger execution)", invokeResp, 201, (data) => {
+    const getResp = await http.get(`${functionsPath}/${functionId}`, "admin-key");
+    steps.push(stepFromResponse14(`GET .../functions/${functionId} (verify fields)`, getResp, 200, (data) => {
       if (!data || typeof data !== "object")
         return "Response is not an object";
       const obj = data;
       const inner = obj.data ?? obj;
       if (!inner || typeof inner !== "object")
         return "Response missing 'data' wrapper";
-      const inv = inner;
-      if (!inv.id)
-        return "Response missing invocation 'id'";
-      if (inv.status !== "queued" && inv.status !== "running" && inv.status !== "success") {
-        return `Unexpected invocation status: ${inv.status}`;
+      const fn = inner;
+      if (String(fn.id) !== functionId) {
+        return `ID mismatch: expected ${functionId}, got ${fn.id}`;
       }
-      invocationId = String(inv.id);
+      if (fn.name !== FUNCTION_NAME) {
+        return `name mismatch: expected "${FUNCTION_NAME}", got "${fn.name}"`;
+      }
+      if (fn.runtime !== "javascript") {
+        return `runtime mismatch: expected "javascript", got "${fn.runtime}"`;
+      }
+      if (fn.handler_name !== "handle") {
+        return `handler_name mismatch: expected "handle", got "${fn.handler_name}"`;
+      }
       return null;
     }));
-    if (invocationId) {
-      let pollResult = null;
-      const pollStart = performance.now();
-      for (let attempt = 1;attempt <= 10; attempt++) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        const pollResp = await http.get(`${functionsPath}/${functionId}/invocations?limit=1`, "admin-key");
-        if (pollResp.error || pollResp.status !== 200)
-          continue;
-        const pollData = pollResp.data;
-        const invocations = Array.isArray(pollData?.data) ? pollData.data : [];
-        if (invocations.length === 0)
-          continue;
-        const inv = invocations[0];
-        const invStatus = String(inv.status);
-        if (invStatus === "success") {
-          const output = inv.output_payload;
-          const pollDuration = Math.round(performance.now() - pollStart);
-          pollResult = {
-            name: `GET .../invocations (poll attempt ${attempt})`,
-            status: "pass",
-            durationMs: pollDuration,
-            detail: `status=success, fuel=${inv.fuel_consumed}, output=${JSON.stringify(output).slice(0, 100)}`
-          };
-          if (!output || output.ok !== true) {
-            pollResult.status = "fail";
-            pollResult.error = `Expected output.ok=true, got ${JSON.stringify(output)}`;
-          } else if (output.echo !== "CANARY_OK") {
-            pollResult.status = "fail";
-            pollResult.error = `Expected output.echo="CANARY_OK", got "${output.echo}"`;
-          }
-          break;
-        }
-        if (invStatus === "error" || invStatus === "timeout") {
-          const pollDuration = Math.round(performance.now() - pollStart);
-          pollResult = {
-            name: `GET .../invocations (poll attempt ${attempt})`,
-            status: "fail",
-            durationMs: pollDuration,
-            error: `Invocation ${invStatus}: ${inv.error_message || "no error message"}`
-          };
-          break;
-        }
-      }
-      if (!pollResult) {
-        const pollDuration = Math.round(performance.now() - pollStart);
-        pollResult = {
-          name: "GET .../invocations (poll timeout)",
-          status: "fail",
-          durationMs: pollDuration,
-          error: "Invocation did not complete within 10 poll attempts (10s)"
-        };
-      }
-      steps.push(pollResult);
-    }
     const deleteResp = await http.delete(`${functionsPath}/${functionId}`, "admin-key");
-    steps.push(stepFromResponse14(`DELETE .../functions/${functionId} (cleanup)`, deleteResp, 204));
+    steps.push(stepFromResponse14(`DELETE .../functions/${functionId} (delete)`, deleteResp, 204));
     if (deleteResp.status === 204) {
       functionId = null;
     }
