@@ -97,7 +97,7 @@ export async function schedulesCheck(http: HttpClient): Promise<CheckResult> {
       {
         name: SCHEDULE_NAME,
         cron_expression: "0 * * * *",
-        action_type: "http",
+        action_type: "webhook",
         action_config: { url: "https://example.com/canary-cron" },
         enabled: false,
         description: "Canary test schedule",

@@ -90,7 +90,7 @@ export async function aiChatCheck(http: HttpClient): Promise<CheckResult> {
     const chatResp = await http.request<Record<string, unknown>>("POST", "/v1/ai/chat", {
       body: {
         messages: [{ role: "user", content: "Reply with exactly: CANARY_OK" }],
-        max_output_tokens: 50,
+        max_tokens: 50,
         temperature: 0,
       },
       auth: "admin-key",
@@ -160,6 +160,9 @@ export async function aiChatCheck(http: HttpClient): Promise<CheckResult> {
  *   - {message: {content: "..."}}
  */
 function extractChatContent(obj: Record<string, unknown>): string | null {
+  // Shape: {text: "..."} (Kapable AI proxy response)
+  if (typeof obj.text === "string") return obj.text;
+
   // Shape: {content: "..."}
   if (typeof obj.content === "string") return obj.content;
 
