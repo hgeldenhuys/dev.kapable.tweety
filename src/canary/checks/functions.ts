@@ -95,17 +95,21 @@ export async function functionsCheck(http: HttpClient): Promise<CheckResult> {
       }
     }
 
-    // Step 1: Create function (auto-compiles to WASM)
-    const createResp = await http.post(
+    // Step 1: Create function (auto-compiles to WASM — can take 15-30s in container)
+    const createResp = await http.request(
+      "POST",
       functionsPath,
       {
-        name: FUNCTION_NAME,
-        source_code: FUNCTION_SOURCE,
-        runtime: "javascript",
-        handler_name: "handle",
-        status: "active",
+        body: {
+          name: FUNCTION_NAME,
+          source_code: FUNCTION_SOURCE,
+          runtime: "javascript",
+          handler_name: "handle",
+          status: "active",
+        },
+        auth: "admin-key",
+        timeoutMs: 30_000,
       },
-      "admin-key",
     );
     steps.push(
       stepFromResponse("POST .../functions (create + compile)", createResp, 201, (data) => {

@@ -27,7 +27,8 @@ class HttpClient {
       headers["x-api-key"] = this.adminKey;
     }
     const controller = new AbortController;
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const effectiveTimeout = options?.timeoutMs ?? this.timeoutMs;
+    const timer = setTimeout(() => controller.abort(), effectiveTimeout);
     const start = performance.now();
     let status = 0;
     let rawText = "";
@@ -47,7 +48,7 @@ class HttpClient {
       } catch {}
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
-        error = `Request timed out after ${this.timeoutMs}ms`;
+        error = `Request timed out after ${effectiveTimeout}ms`;
       } else if (err instanceof Error) {
         error = err.message;
       } else {
@@ -2147,13 +2148,17 @@ async function functionsCheck(http) {
         }
       }
     }
-    const createResp = await http.post(functionsPath, {
-      name: FUNCTION_NAME,
-      source_code: FUNCTION_SOURCE,
-      runtime: "javascript",
-      handler_name: "handle",
-      status: "active"
-    }, "admin-key");
+    const createResp = await http.request("POST", functionsPath, {
+      body: {
+        name: FUNCTION_NAME,
+        source_code: FUNCTION_SOURCE,
+        runtime: "javascript",
+        handler_name: "handle",
+        status: "active"
+      },
+      auth: "admin-key",
+      timeoutMs: 30000
+    });
     steps.push(stepFromResponse14("POST .../functions (create + compile)", createResp, 201, (data) => {
       if (!data || typeof data !== "object")
         return "Response is not an object";

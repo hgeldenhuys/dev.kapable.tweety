@@ -58,6 +58,8 @@ export class HttpClient {
       body?: unknown;
       auth?: AuthMode;
       headers?: Record<string, string>;
+      /** Override the default timeout for this request */
+      timeoutMs?: number;
     },
   ): Promise<HttpResponse<T>> {
     const auth = options?.auth ?? "none";
@@ -79,7 +81,8 @@ export class HttpClient {
     }
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const effectiveTimeout = options?.timeoutMs ?? this.timeoutMs;
+    const timer = setTimeout(() => controller.abort(), effectiveTimeout);
 
     const start = performance.now();
     let status = 0;
@@ -105,7 +108,7 @@ export class HttpClient {
       }
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === "AbortError") {
-        error = `Request timed out after ${this.timeoutMs}ms`;
+        error = `Request timed out after ${effectiveTimeout}ms`;
       } else if (err instanceof Error) {
         error = err.message;
       } else {
