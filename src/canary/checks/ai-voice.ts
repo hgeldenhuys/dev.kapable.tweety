@@ -88,6 +88,16 @@ export async function aiVoiceCheck(http: HttpClient): Promise<CheckResult> {
 
     // Step 2: List voices
     const voicesResp = await http.get<unknown>("/v1/voice/voices", "admin-key");
+
+    // 500 means the external voice provider (ElevenLabs) returned an error -- skip, not fail
+    if (voicesResp.status === 500) {
+      steps.push({
+        name: "GET /v1/voice/voices (list voices)",
+        status: "skip",
+        durationMs: voicesResp.durationMs,
+        detail: `External voice provider error (500), skipping: ${voicesResp.rawText.slice(0, 200)}`,
+      });
+    } else {
     steps.push(
       stepFromResponse("GET /v1/voice/voices (list voices)", voicesResp, 200, (data) => {
         if (!Array.isArray(data)) {
@@ -120,6 +130,7 @@ export async function aiVoiceCheck(http: HttpClient): Promise<CheckResult> {
         voicesStep.detail = `${voiceCount} voices available`;
       }
     }
+    } // end else (non-500 voices response)
 
     // Step 3: Check usage endpoint
     const usageResp = await http.get<Record<string, unknown>>("/v1/voice/usage", "admin-key");

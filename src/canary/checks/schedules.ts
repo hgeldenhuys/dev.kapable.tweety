@@ -146,8 +146,8 @@ export async function schedulesCheck(http: HttpClient): Promise<CheckResult> {
         if (schedule.enabled !== false) {
           return `enabled expected false, got ${schedule.enabled}`;
         }
-        if (schedule.action_type !== "http") {
-          return `action_type mismatch: expected "http", got "${schedule.action_type}"`;
+        if (schedule.action_type !== "webhook") {
+          return `action_type mismatch: expected "webhook", got "${schedule.action_type}"`;
         }
         return null;
       }),
