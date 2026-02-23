@@ -7,6 +7,10 @@ import { healthCheck } from "./checks/health";
 import { dataCrudCheck } from "./checks/data-crud";
 import { togglesCheck } from "./checks/toggles";
 import { tokensCheck } from "./checks/tokens";
+import { secretsCheck } from "./checks/secrets";
+import { documentsCheck } from "./checks/documents";
+import { webhooksCheck } from "./checks/webhooks";
+import { schedulesCheck } from "./checks/schedules";
 
 /**
  * A registered check: name + function that produces a CheckResult.
@@ -24,6 +28,10 @@ const registry: RegisteredCheck[] = [
   { name: "data-crud", fn: dataCrudCheck },
   { name: "toggles", fn: togglesCheck },
   { name: "tokens", fn: tokensCheck },
+  { name: "secrets", fn: secretsCheck },
+  { name: "documents", fn: documentsCheck },
+  { name: "webhooks", fn: webhooksCheck },
+  { name: "schedules", fn: schedulesCheck },
 ];
 
 /**
