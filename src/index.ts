@@ -3,13 +3,18 @@
  *
  * A Bun HTTP server that exercises the Kapable API to verify platform health.
  * Routes:
- *   GET /         -- Dashboard landing page with last canary report
- *   GET /health   -- Simple JSON health check (backward compat)
- *   GET /canary   -- Run ALL canary checks, return CanaryReport JSON
- *   GET /canary/:name -- Run a single check by name
+ *   GET /                        -- Dashboard landing page with last canary report
+ *   GET /health                  -- Simple JSON health check (backward compat)
+ *   GET /canary                  -- Run ALL canary checks, return CanaryReport JSON
+ *   GET /canary/:name            -- Run a single check by name
+ *   GET /hector                  -- Run ALL Hector (AI Flows) checks, return CanaryReport JSON
+ *   GET /hector/:name            -- Run a single Hector check by name
+ *   GET /sylvester/app-lifecycle -- Sylvester E2E UAT plan (Chrome MCP steps)
  */
 import type { CanaryReport } from "./canary/types";
 import { runAllChecks, runCheck, getCheckNames } from "./canary/runner";
+import { runAllHectorChecks, runHectorCheck, getHectorCheckNames } from "./hector/runner";
+import { APP_LIFECYCLE_PLAN } from "./sylvester/app-lifecycle";
 
 const port = Number(process.env.PORT) || 3000;
 const hostname = "0.0.0.0";
@@ -206,7 +211,9 @@ function buildDashboardHtml(): string {
   <div class="footer">
     Tweety v0.1.0 &middot; Bun ${Bun.version} &middot;
     <a href="/health">/health</a> &middot;
-    <a href="/canary">/canary (JSON)</a>
+    <a href="/canary">/canary (JSON)</a> &middot;
+    <a href="/hector">/hector (AI Flows)</a> &middot;
+    <a href="/sylvester/app-lifecycle">/sylvester (E2E)</a>
   </div>
 
   <script>
@@ -353,6 +360,11 @@ const server = Bun.serve({
       });
     }
 
+    // GET /sylvester/app-lifecycle -- Sylvester E2E UAT plan (UI-only steps, executed by Chrome MCP)
+    if (path === "/sylvester/app-lifecycle") {
+      return Response.json(APP_LIFECYCLE_PLAN);
+    }
+
     // GET /canary -- Run all checks
     if (path === "/canary") {
       if (!acquireLock()) {
@@ -397,6 +409,51 @@ const server = Bun.serve({
       }
     }
 
+    // Hector routes (AI Flows test harness)
+    // GET /hector -- Run all Hector checks
+    if (path === "/hector") {
+      if (!acquireLock()) {
+        return Response.json(
+          { error: "A test harness is already running. Please wait for it to finish." },
+          { status: 429 },
+        );
+      }
+
+      try {
+        const report = await runAllHectorChecks();
+        lastReport = report;
+        return Response.json(report);
+      } finally {
+        isRunning = false;
+      }
+    }
+
+    // GET /hector/:name -- Run a single Hector check
+    const hectorMatch = path.match(/^\/hector\/([a-z0-9-]+)$/);
+    if (hectorMatch) {
+      const checkName = hectorMatch[1];
+
+      if (!acquireLock()) {
+        return Response.json(
+          { error: "A test harness is already running. Please wait for it to finish." },
+          { status: 429 },
+        );
+      }
+
+      try {
+        const result = await runHectorCheck(checkName);
+        if (!result) {
+          return Response.json(
+            { error: `Hector check "${checkName}" not found. Available: ${getHectorCheckNames().join(", ")}` },
+            { status: 404 },
+          );
+        }
+        return Response.json(result);
+      } finally {
+        isRunning = false;
+      }
+    }
+
     // 404
     return Response.json({ error: "Not found" }, { status: 404 });
   },
@@ -406,6 +463,7 @@ console.log(`Tweety canary running on ${hostname}:${port}`);
 console.log(`  Dashboard: http://localhost:${port}/`);
 console.log(`  Health:    http://localhost:${port}/health`);
 console.log(`  Canary:    http://localhost:${port}/canary`);
+console.log(`  Hector:    http://localhost:${port}/hector`);
 console.log(`  Checks:    ${getCheckNames().join(", ")}`);
 
 // Log env var status at startup
