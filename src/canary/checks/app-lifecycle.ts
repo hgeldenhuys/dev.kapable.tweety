@@ -99,16 +99,27 @@ export async function appLifecycleCheck(http: HttpClient): Promise<CheckResult> 
             detail: cleanupOk ? "Orphan cleaned up" : `stop=${stopResp.status}, app-del=${delResp.status}`,
             error: cleanupOk ? undefined : (delResp.error || `app-del returned ${delResp.status}`),
           });
-          break;
+          // Don't break — clean up ALL orphans (multiple can exist from concurrent runs)
         }
       }
     }
 
-    // Step 2: Create app
-    const createResp = await http.request<Record<string, unknown>>("POST", "/v1/apps", {
+    // Step 2: Create app (retry on 409 — delete cascade may still be in progress)
+    let createResp = await http.request<Record<string, unknown>>("POST", "/v1/apps", {
       body: { name: APP_NAME, slug: APP_SLUG, framework: FRAMEWORK },
       auth: "admin-key",
     });
+
+    if (createResp.status === 409) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        await sleep(3000);
+        createResp = await http.request<Record<string, unknown>>("POST", "/v1/apps", {
+          body: { name: APP_NAME, slug: APP_SLUG, framework: FRAMEWORK },
+          auth: "admin-key",
+        });
+        if (createResp.status !== 409) break;
+      }
+    }
 
     steps.push(
       stepFromResponse("POST /v1/apps (create canary-smoke)", createResp, [200, 201], (data) => {
