@@ -189,7 +189,9 @@ export async function appLifecycleCheck(http: HttpClient): Promise<CheckResult> 
       if (pollResp.error) continue;
       if (pollResp.data && typeof pollResp.data === "object") {
         const obj = pollResp.data as Record<string, unknown>;
-        deployStatus = String(obj.status ?? "unknown");
+        // API wraps response in { data: { status: ... } }
+        const inner = (obj.data && typeof obj.data === "object" ? obj.data : obj) as Record<string, unknown>;
+        deployStatus = String(inner.status ?? "unknown");
         if (deployStatus === "success" || deployStatus === "failed" || deployStatus === "error") {
           break;
         }
