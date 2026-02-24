@@ -331,6 +331,7 @@ function buildDashboardHtml(): string {
 const server = Bun.serve({
   port,
   hostname,
+  idleTimeout: 120, // seconds — WASM compilation can take 14s+, default 10s drops connection
   async fetch(req) {
     const url = new URL(req.url);
     const path = url.pathname;
