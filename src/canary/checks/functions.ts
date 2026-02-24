@@ -14,7 +14,7 @@ import type { HttpClient } from "../http";
 import type { CheckResult, StepResult } from "../types";
 
 const FUNCTION_NAME = "canary-function";
-const FUNCTION_SOURCE = 'export function handle(input) { return { ok: true, echo: input.msg || "CANARY_OK" }; }';
+const FUNCTION_SOURCE = 'function handle(input) { var msg = (input && input.msg) || "CANARY_OK"; return { ok: true, echo: msg }; }';
 
 function stepFromResponse(
   name: string,
@@ -106,9 +106,7 @@ export async function functionsCheck(http: HttpClient): Promise<CheckResult> {
         body: {
           name: FUNCTION_NAME,
           source_code: FUNCTION_SOURCE,
-          runtime: "javascript",
           handler_name: "handle",
-          status: "draft",
         },
         auth: "admin-key",
         timeoutMs: 20_000,
@@ -178,8 +176,8 @@ export async function functionsCheck(http: HttpClient): Promise<CheckResult> {
         if (fn.name !== FUNCTION_NAME) {
           return `name mismatch: expected "${FUNCTION_NAME}", got "${fn.name}"`;
         }
-        if (fn.runtime !== "javascript") {
-          return `runtime mismatch: expected "javascript", got "${fn.runtime}"`;
+        if (fn.runtime !== "typescript") {
+          return `runtime mismatch: expected "typescript", got "${fn.runtime}"`;
         }
         if (fn.handler_name !== "handle") {
           return `handler_name mismatch: expected "handle", got "${fn.handler_name}"`;

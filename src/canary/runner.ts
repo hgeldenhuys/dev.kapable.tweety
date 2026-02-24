@@ -18,6 +18,9 @@ import { auditLogsCheck } from "./checks/audit-logs";
 import { usageCheck } from "./checks/usage";
 import { storageCheck } from "./checks/storage";
 import { functionsCheck } from "./checks/functions";
+import { deployHealthCheck } from "./checks/deploy-health";
+import { authFlowCheck } from "./checks/auth-flow";
+import { appLifecycleCheck } from "./checks/app-lifecycle";
 
 /**
  * A registered check: name + function that produces a CheckResult.
@@ -45,7 +48,10 @@ const registry: RegisteredCheck[] = [
   { name: "audit-logs", fn: auditLogsCheck },
   { name: "usage", fn: usageCheck },
   { name: "storage", fn: storageCheck },
-  // { name: "functions", fn: functionsCheck }, // Disabled: WASM compilation crashes Bun in container
+  { name: "functions", fn: functionsCheck },
+  { name: "deploy-health", fn: deployHealthCheck },
+  { name: "auth-flow", fn: authFlowCheck },
+  { name: "app-lifecycle", fn: appLifecycleCheck },
 ];
 
 /**
