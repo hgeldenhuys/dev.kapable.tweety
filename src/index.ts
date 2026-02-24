@@ -19,8 +19,8 @@ let lastReport: CanaryReport | null = null;
 let isRunning = false;
 let runningStartedAt = 0;
 
-/** Max time a canary run can hold the lock (2 minutes) */
-const MAX_LOCK_DURATION_MS = 120_000;
+/** Max time a canary run can hold the lock (4 minutes — app-lifecycle needs 3+ min) */
+const MAX_LOCK_DURATION_MS = 240_000;
 
 /** Check if the lock is stale (hung process) and clear it */
 function acquireLock(): boolean {
@@ -331,7 +331,7 @@ function buildDashboardHtml(): string {
 const server = Bun.serve({
   port,
   hostname,
-  idleTimeout: 120, // seconds — WASM compilation can take 14s+, default 10s drops connection
+  idleTimeout: 255, // seconds — app-lifecycle check can take 3+ min (deploy + poll + verify)
   async fetch(req) {
     const url = new URL(req.url);
     const path = url.pathname;
