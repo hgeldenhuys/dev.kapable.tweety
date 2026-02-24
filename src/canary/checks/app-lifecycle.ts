@@ -75,13 +75,14 @@ export async function appLifecycleCheck(http: HttpClient): Promise<CheckResult> 
         const obj = app as Record<string, unknown>;
         if (obj.slug === APP_SLUG) {
           const existingId = String(obj.id);
-          // Must delete environment first (API protects running envs)
-          const envDelResp = await http.delete(
-            `/v1/apps/${existingId}/environments/production`,
-            "admin-key",
+          // Stop the production environment first (can't DELETE production, but can STOP it)
+          const stopResp = await http.request<Record<string, unknown>>(
+            "POST",
+            `/v1/apps/${existingId}/environments/production/stop`,
+            { auth: "admin-key" },
           );
-          // Retry app delete — container teardown is async, env may linger
-          let delResp = envDelResp;
+          // Retry app delete — container teardown is async
+          let delResp = stopResp;
           let cleanupOk = false;
           for (let attempt = 0; attempt < 5; attempt++) {
             await sleep(3000);
@@ -92,10 +93,10 @@ export async function appLifecycleCheck(http: HttpClient): Promise<CheckResult> 
             }
           }
           steps.push({
-            name: `pre-cleanup: DELETE /v1/apps/${existingId}`,
+            name: `pre-cleanup: stop + DELETE /v1/apps/${existingId}`,
             status: cleanupOk ? "pass" : "fail",
-            durationMs: delResp.durationMs + envDelResp.durationMs + listResp.durationMs,
-            detail: cleanupOk ? "Orphan cleaned up" : `env-del=${envDelResp.status}, app-del=${delResp.status}`,
+            durationMs: delResp.durationMs + stopResp.durationMs + listResp.durationMs,
+            detail: cleanupOk ? "Orphan cleaned up" : `stop=${stopResp.status}, app-del=${delResp.status}`,
             error: cleanupOk ? undefined : (delResp.error || `app-del returned ${delResp.status}`),
           });
           break;
@@ -252,11 +253,15 @@ export async function appLifecycleCheck(http: HttpClient): Promise<CheckResult> 
       error: err instanceof Error ? err.message : String(err),
     });
   } finally {
-    // Always cleanup: delete environment first, then app
+    // Always cleanup: stop environment, then delete app (cascades)
     if (appId) {
       try {
-        // Delete environment (stops container)
-        await http.delete(`/v1/apps/${appId}/environments/production`, "admin-key");
+        // Stop environment (can't DELETE production, but stopping it allows app deletion)
+        await http.request<Record<string, unknown>>(
+          "POST",
+          `/v1/apps/${appId}/environments/production/stop`,
+          { auth: "admin-key" },
+        );
         // Retry app delete — container teardown is async
         let delResp: { status: number; durationMs: number; error?: string; rawText: string; data: unknown } | null = null;
         for (let attempt = 0; attempt < 5; attempt++) {
