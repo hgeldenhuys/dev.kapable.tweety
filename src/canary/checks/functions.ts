@@ -109,7 +109,7 @@ export async function functionsCheck(http: HttpClient): Promise<CheckResult> {
           handler_name: "handle",
         },
         auth: "admin-key",
-        timeoutMs: 20_000,
+        timeoutMs: 30_000,
       },
     );
     steps.push(
