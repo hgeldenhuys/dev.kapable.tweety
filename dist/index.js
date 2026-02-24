@@ -2078,6 +2078,679 @@ function buildResult13(steps, checkStart, errorMsg) {
   };
 }
 
+// src/canary/checks/functions.ts
+var FUNCTION_NAME = "canary-function";
+var FUNCTION_SOURCE = 'function handle(input) { var msg = (input && input.msg) || "CANARY_OK"; return { ok: true, echo: msg }; }';
+function stepFromResponse14(name, resp, expectedStatus, validate) {
+  const expected = Array.isArray(expectedStatus) ? expectedStatus : [expectedStatus];
+  const step = {
+    name,
+    status: "pass",
+    durationMs: resp.durationMs
+  };
+  if (resp.error) {
+    step.status = "fail";
+    step.error = resp.error;
+    return step;
+  }
+  if (!expected.includes(resp.status)) {
+    step.status = "fail";
+    step.error = `Expected status ${expected.join("|")}, got ${resp.status}`;
+    step.detail = resp.rawText.slice(0, 300);
+    return step;
+  }
+  if (validate) {
+    const validationError = validate(resp.data);
+    if (validationError) {
+      step.status = "fail";
+      step.error = validationError;
+    }
+  }
+  return step;
+}
+async function functionsCheck(http) {
+  const appId = process.env.KAPABLE_APP_ID ?? "";
+  const envName = process.env.KAPABLE_ENV_NAME ?? "production";
+  if (!appId) {
+    return {
+      name: "functions",
+      status: "skip",
+      durationMs: 0,
+      steps: [{
+        name: "KAPABLE_APP_ID not set",
+        status: "skip",
+        durationMs: 0,
+        detail: "Functions check requires KAPABLE_APP_ID env var"
+      }]
+    };
+  }
+  const functionsPath = `/v1/apps/${appId}/environments/${envName}/functions`;
+  const steps = [];
+  const checkStart = performance.now();
+  let functionId = null;
+  try {
+    const preList = await http.get(functionsPath, "admin-key");
+    if (preList.data && typeof preList.data === "object") {
+      const listObj = preList.data;
+      const items = Array.isArray(listObj.data) ? listObj.data : Array.isArray(preList.data) ? preList.data : [];
+      for (const item of items) {
+        const fn = item;
+        if (fn.name === FUNCTION_NAME && fn.id) {
+          const delResp = await http.delete(`${functionsPath}/${fn.id}`, "admin-key");
+          if (delResp.status === 204 || delResp.status === 200) {
+            steps.push({
+              name: "pre-cleanup: DELETE canary-function (existed from previous run)",
+              status: "pass",
+              durationMs: delResp.durationMs,
+              detail: "Stale function cleaned up"
+            });
+          }
+        }
+      }
+    }
+    const createResp = await http.request("POST", functionsPath, {
+      body: {
+        name: FUNCTION_NAME,
+        source_code: FUNCTION_SOURCE,
+        handler_name: "handle"
+      },
+      auth: "admin-key",
+      timeoutMs: 30000
+    });
+    steps.push(stepFromResponse14("POST .../functions (create)", createResp, 201, (data) => {
+      if (!data || typeof data !== "object")
+        return "Response is not an object";
+      const obj = data;
+      const inner = obj.data ?? obj;
+      if (!inner || typeof inner !== "object")
+        return "Response missing 'data' wrapper";
+      const fn = inner;
+      if (!fn.id)
+        return "Response missing 'id' field";
+      if (fn.name !== FUNCTION_NAME) {
+        return `name mismatch: expected "${FUNCTION_NAME}", got "${fn.name}"`;
+      }
+      functionId = String(fn.id);
+      return null;
+    }));
+    if (!functionId) {
+      return buildResult14(steps, checkStart, "Cannot proceed without function ID");
+    }
+    const createData = createResp.data?.data;
+    if (createData) {
+      const lastStep = steps[steps.length - 1];
+      if (lastStep.status === "pass") {
+        const compiled = createData.compiled_at ? "yes" : "no";
+        lastStep.detail = `version=${createData.version}, runtime=${createData.runtime}, compiled=${compiled}`;
+      }
+    }
+    const listResp = await http.get(functionsPath, "admin-key");
+    steps.push(stepFromResponse14("GET .../functions (verify in list)", listResp, 200, (data) => {
+      if (!data || typeof data !== "object")
+        return "Response is not an object";
+      const obj = data;
+      const items = Array.isArray(obj.data) ? obj.data : [];
+      let found = false;
+      for (const item of items) {
+        const fn = item;
+        if (String(fn.id) === functionId) {
+          found = true;
+          break;
+        }
+      }
+      if (!found)
+        return `Function ${functionId} not found in list`;
+      return null;
+    }));
+    const getResp = await http.get(`${functionsPath}/${functionId}`, "admin-key");
+    steps.push(stepFromResponse14(`GET .../functions/${functionId} (verify fields)`, getResp, 200, (data) => {
+      if (!data || typeof data !== "object")
+        return "Response is not an object";
+      const obj = data;
+      const inner = obj.data ?? obj;
+      if (!inner || typeof inner !== "object")
+        return "Response missing 'data' wrapper";
+      const fn = inner;
+      if (String(fn.id) !== functionId) {
+        return `ID mismatch: expected ${functionId}, got ${fn.id}`;
+      }
+      if (fn.name !== FUNCTION_NAME) {
+        return `name mismatch: expected "${FUNCTION_NAME}", got "${fn.name}"`;
+      }
+      if (fn.runtime !== "typescript") {
+        return `runtime mismatch: expected "typescript", got "${fn.runtime}"`;
+      }
+      if (fn.handler_name !== "handle") {
+        return `handler_name mismatch: expected "handle", got "${fn.handler_name}"`;
+      }
+      return null;
+    }));
+    const deleteResp = await http.delete(`${functionsPath}/${functionId}`, "admin-key");
+    steps.push(stepFromResponse14(`DELETE .../functions/${functionId} (delete)`, deleteResp, 204));
+    if (deleteResp.status === 204) {
+      functionId = null;
+    }
+  } catch (err) {
+    steps.push({
+      name: "unexpected error",
+      status: "fail",
+      durationMs: 0,
+      error: err instanceof Error ? err.message : String(err)
+    });
+  } finally {
+    if (functionId) {
+      try {
+        const cleanupResp = await http.delete(`${functionsPath}/${functionId}`, "admin-key");
+        steps.push(stepFromResponse14(`DELETE .../functions/${functionId} (finally cleanup)`, cleanupResp, [204, 404]));
+      } catch (cleanupErr) {
+        steps.push({
+          name: "cleanup: delete function",
+          status: "fail",
+          durationMs: 0,
+          error: `Cleanup failed: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`
+        });
+      }
+    }
+  }
+  return buildResult14(steps, checkStart);
+}
+function buildResult14(steps, checkStart, errorMsg) {
+  const totalDuration = Math.round(performance.now() - checkStart);
+  let hasFail = false;
+  let hasSkip = false;
+  let hasPass = false;
+  for (const step of steps) {
+    if (step.status === "fail")
+      hasFail = true;
+    else if (step.status === "skip")
+      hasSkip = true;
+    else
+      hasPass = true;
+  }
+  const status = hasFail ? "fail" : !hasPass && hasSkip ? "skip" : hasSkip ? "warn" : "pass";
+  return {
+    name: "functions",
+    status,
+    durationMs: totalDuration,
+    steps,
+    error: errorMsg
+  };
+}
+
+// src/canary/checks/deploy-health.ts
+var TWEETY_HEALTH_URL = "https://tweety.kapable.run/health";
+var TIMEOUT_MS = 5000;
+async function deployHealthCheck(_http) {
+  const steps = [];
+  const checkStart = performance.now();
+  try {
+    const controller = new AbortController;
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const fetchStart = performance.now();
+    let status = 0;
+    let rawText = "";
+    let data = null;
+    let fetchError;
+    try {
+      const resp = await fetch(TWEETY_HEALTH_URL, {
+        signal: controller.signal,
+        headers: { Accept: "application/json" }
+      });
+      status = resp.status;
+      rawText = await resp.text();
+      try {
+        data = JSON.parse(rawText);
+      } catch {}
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        fetchError = `Request timed out after ${TIMEOUT_MS}ms`;
+      } else if (err instanceof Error) {
+        fetchError = err.message;
+      } else {
+        fetchError = String(err);
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+    const fetchDuration = Math.round(performance.now() - fetchStart);
+    const httpStep = {
+      name: `GET ${TWEETY_HEALTH_URL}`,
+      status: "pass",
+      durationMs: fetchDuration
+    };
+    if (fetchError) {
+      httpStep.status = "fail";
+      httpStep.error = fetchError;
+    } else if (status !== 200) {
+      httpStep.status = "fail";
+      httpStep.error = `Expected status 200, got ${status}`;
+      httpStep.detail = rawText.slice(0, 200);
+    } else {
+      httpStep.detail = `status=${status}`;
+    }
+    steps.push(httpStep);
+    const bodyStep = {
+      name: "Response has valid body",
+      status: "pass",
+      durationMs: 0
+    };
+    if (fetchError) {
+      bodyStep.status = "skip";
+      bodyStep.detail = "Skipped due to request failure";
+    } else if (data) {
+      bodyStep.detail = JSON.stringify(data).slice(0, 100);
+    } else if (rawText.trim() === "ok" || rawText.trim().length > 0) {
+      bodyStep.detail = `plain text: "${rawText.trim().slice(0, 50)}"`;
+    } else {
+      bodyStep.status = "fail";
+      bodyStep.error = "Response body was empty";
+    }
+    steps.push(bodyStep);
+    const latencyStep = {
+      name: "Response time < 5000ms",
+      status: "pass",
+      durationMs: fetchDuration
+    };
+    if (fetchError) {
+      latencyStep.status = "fail";
+      latencyStep.error = "Request failed, cannot measure latency";
+    } else if (fetchDuration >= 5000) {
+      latencyStep.status = "fail";
+      latencyStep.error = `Response took ${fetchDuration}ms (limit 5000ms)`;
+    } else {
+      latencyStep.detail = `${fetchDuration}ms`;
+    }
+    steps.push(latencyStep);
+  } catch (err) {
+    steps.push({
+      name: "unexpected error",
+      status: "fail",
+      durationMs: 0,
+      error: err instanceof Error ? err.message : String(err)
+    });
+  }
+  return buildResult15(steps, checkStart);
+}
+function buildResult15(steps, checkStart) {
+  const totalDuration = Math.round(performance.now() - checkStart);
+  let hasFail = false;
+  let hasSkip = false;
+  let hasPass = false;
+  for (const step of steps) {
+    if (step.status === "fail")
+      hasFail = true;
+    else if (step.status === "skip")
+      hasSkip = true;
+    else
+      hasPass = true;
+  }
+  const status = hasFail ? "fail" : !hasPass && hasSkip ? "skip" : hasSkip ? "warn" : "pass";
+  return {
+    name: "deploy-health",
+    status,
+    durationMs: totalDuration,
+    steps
+  };
+}
+
+// src/canary/checks/auth-flow.ts
+function stepFromResponse15(name, resp, expectedStatus, validate) {
+  const expected = Array.isArray(expectedStatus) ? expectedStatus : [expectedStatus];
+  const step = {
+    name,
+    status: "pass",
+    durationMs: resp.durationMs
+  };
+  if (resp.error) {
+    step.status = "fail";
+    step.error = resp.error;
+    return step;
+  }
+  if (!expected.includes(resp.status)) {
+    step.status = "fail";
+    step.error = `Expected status ${expected.join("|")}, got ${resp.status}`;
+    step.detail = resp.rawText.slice(0, 300);
+    return step;
+  }
+  if (validate) {
+    const validationError = validate(resp.data);
+    if (validationError) {
+      step.status = "fail";
+      step.error = validationError;
+    }
+  }
+  return step;
+}
+async function authFlowCheck(http) {
+  const steps = [];
+  const checkStart = performance.now();
+  const ts = Date.now();
+  const email = `canary-${ts}@test.kapable.dev`;
+  const password = `CanaryP@ss${ts}!`;
+  const orgName = `canary-org-${ts}`;
+  let sessionToken = null;
+  try {
+    const orgSlug = `canary-org-${ts}`;
+    const signupResp = await http.request("POST", "/v1/auth/signup", {
+      body: { email, password, name: "Canary Bird", org_name: orgName, org_slug: orgSlug },
+      auth: "none"
+    });
+    steps.push(stepFromResponse15("POST /v1/auth/signup", signupResp, [200, 201], (data) => {
+      if (!data || typeof data !== "object")
+        return "Response is not an object";
+      const obj = data;
+      if (!obj.token && !obj.session_token)
+        return "Response missing token";
+      return null;
+    }));
+    if (signupResp.error || signupResp.status !== 200 && signupResp.status !== 201) {
+      return buildResult16(steps, checkStart, "Cannot proceed without signup");
+    }
+    const loginResp = await http.request("POST", "/v1/auth/login", {
+      body: { email, password, org_slug: orgSlug },
+      auth: "none"
+    });
+    steps.push(stepFromResponse15("POST /v1/auth/login", loginResp, 200, (data) => {
+      if (!data || typeof data !== "object")
+        return "Response is not an object";
+      const obj = data;
+      const token = obj.token ?? obj.session_token;
+      if (!token)
+        return "Response missing token";
+      sessionToken = token;
+      return null;
+    }));
+    if (!sessionToken) {
+      return buildResult16(steps, checkStart, "Cannot proceed without session token");
+    }
+    const sessionResp = await http.request("GET", "/v1/auth/session", {
+      auth: "none",
+      headers: { Authorization: `Bearer ${sessionToken}` }
+    });
+    steps.push(stepFromResponse15("GET /v1/auth/session (verify)", sessionResp, 200, (data) => {
+      if (!data || typeof data !== "object")
+        return "Response is not an object";
+      const obj = data;
+      const respEmail = obj.email ?? obj.user?.email;
+      if (respEmail && respEmail !== email)
+        return `Email mismatch: expected ${email}, got ${respEmail}`;
+      return null;
+    }));
+  } catch (err) {
+    steps.push({
+      name: "unexpected error",
+      status: "fail",
+      durationMs: 0,
+      error: err instanceof Error ? err.message : String(err)
+    });
+  }
+  return buildResult16(steps, checkStart);
+}
+function buildResult16(steps, checkStart, errorMsg) {
+  const totalDuration = Math.round(performance.now() - checkStart);
+  let hasFail = false;
+  let hasSkip = false;
+  let hasPass = false;
+  for (const step of steps) {
+    if (step.status === "fail")
+      hasFail = true;
+    else if (step.status === "skip")
+      hasSkip = true;
+    else
+      hasPass = true;
+  }
+  const status = hasFail ? "fail" : !hasPass && hasSkip ? "skip" : hasSkip ? "warn" : "pass";
+  return {
+    name: "auth-flow",
+    status,
+    durationMs: totalDuration,
+    steps,
+    error: errorMsg
+  };
+}
+
+// src/canary/checks/app-lifecycle.ts
+var APP_SLUG = "canary-smoke";
+var APP_NAME = "Canary Smoke";
+var FRAMEWORK = "bun-server";
+var DEPLOY_POLL_INTERVAL_MS = 5000;
+var DEPLOY_TIMEOUT_MS = 120000;
+var SUBDOMAIN_TIMEOUT_MS = 30000;
+var SUBDOMAIN_RETRY_INTERVAL_MS = 3000;
+var SUBDOMAIN_URL = `https://${APP_SLUG}.kapable.run/health`;
+function stepFromResponse16(name, resp, expectedStatus, validate) {
+  const expected = Array.isArray(expectedStatus) ? expectedStatus : [expectedStatus];
+  const step = {
+    name,
+    status: "pass",
+    durationMs: resp.durationMs
+  };
+  if (resp.error) {
+    step.status = "fail";
+    step.error = resp.error;
+    return step;
+  }
+  if (!expected.includes(resp.status)) {
+    step.status = "fail";
+    step.error = `Expected status ${expected.join("|")}, got ${resp.status}`;
+    step.detail = resp.rawText.slice(0, 300);
+    return step;
+  }
+  if (validate) {
+    const validationError = validate(resp.data);
+    if (validationError) {
+      step.status = "fail";
+      step.error = validationError;
+    }
+  }
+  return step;
+}
+async function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+async function appLifecycleCheck(http) {
+  const steps = [];
+  const checkStart = performance.now();
+  let appId = null;
+  try {
+    const listResp = await http.get("/v1/apps", "admin-key");
+    if (!listResp.error && listResp.data) {
+      const wrapper = listResp.data;
+      const appsArray = wrapper.data ?? wrapper;
+      const apps = Array.isArray(appsArray) ? appsArray : [];
+      for (const app of apps) {
+        const obj = app;
+        if (obj.slug === APP_SLUG) {
+          const existingId = String(obj.id);
+          const envDelResp = await http.delete(`/v1/apps/${existingId}/environments/production`, "admin-key");
+          let delResp = envDelResp;
+          let cleanupOk = false;
+          for (let attempt = 0;attempt < 5; attempt++) {
+            await sleep(3000);
+            delResp = await http.delete(`/v1/apps/${existingId}`, "admin-key");
+            if (!delResp.error || delResp.status === 404) {
+              cleanupOk = true;
+              break;
+            }
+          }
+          steps.push({
+            name: `pre-cleanup: DELETE /v1/apps/${existingId}`,
+            status: cleanupOk ? "pass" : "fail",
+            durationMs: delResp.durationMs + envDelResp.durationMs + listResp.durationMs,
+            detail: cleanupOk ? "Orphan cleaned up" : `env-del=${envDelResp.status}, app-del=${delResp.status}`,
+            error: cleanupOk ? undefined : delResp.error || `app-del returned ${delResp.status}`
+          });
+          break;
+        }
+      }
+    }
+    const createResp = await http.request("POST", "/v1/apps", {
+      body: { name: APP_NAME, slug: APP_SLUG, framework: FRAMEWORK },
+      auth: "admin-key"
+    });
+    steps.push(stepFromResponse16("POST /v1/apps (create canary-smoke)", createResp, [200, 201], (data) => {
+      if (!data || typeof data !== "object")
+        return "Response is not an object";
+      const obj = data;
+      if (!obj.id)
+        return "Response missing 'id' field";
+      appId = String(obj.id);
+      return null;
+    }));
+    if (!appId) {
+      return buildResult17(steps, checkStart, "Cannot proceed without app ID");
+    }
+    const getResp = await http.get(`/v1/apps/${appId}`, "admin-key");
+    steps.push(stepFromResponse16(`GET /v1/apps/${appId} (verify env)`, getResp, 200, (data) => {
+      if (!data || typeof data !== "object")
+        return "Response is not an object";
+      const obj = data;
+      const envs = obj.environments;
+      if (!envs || !Array.isArray(envs) || envs.length === 0)
+        return "No environments found";
+      const prodEnv = envs[0];
+      if (prodEnv.name !== "production")
+        return `Expected env name 'production', got '${prodEnv.name}'`;
+      return null;
+    }));
+    const deployResp = await http.request("POST", `/v1/apps/${appId}/environments/production/deploy`, { auth: "admin-key" });
+    let deploymentId = null;
+    steps.push(stepFromResponse16("POST .../deploy (trigger)", deployResp, [200, 201, 202], (data) => {
+      if (!data || typeof data !== "object")
+        return "Response is not an object";
+      const obj = data;
+      const id = obj.id ?? obj.deployment_id;
+      if (!id)
+        return "Response missing deployment ID";
+      deploymentId = String(id);
+      return null;
+    }));
+    if (!deploymentId) {
+      return buildResult17(steps, checkStart, "Cannot proceed without deployment ID");
+    }
+    const pollStart = performance.now();
+    let deployStatus = "pending";
+    let pollCount = 0;
+    while (performance.now() - pollStart < DEPLOY_TIMEOUT_MS) {
+      await sleep(DEPLOY_POLL_INTERVAL_MS);
+      pollCount++;
+      const pollResp = await http.get(`/v1/apps/${appId}/environments/production/deployments/${deploymentId}`, "admin-key");
+      if (pollResp.error)
+        continue;
+      if (pollResp.data && typeof pollResp.data === "object") {
+        const obj = pollResp.data;
+        deployStatus = String(obj.status ?? "unknown");
+        if (deployStatus === "success" || deployStatus === "failed" || deployStatus === "error") {
+          break;
+        }
+      }
+    }
+    const pollDuration = Math.round(performance.now() - pollStart);
+    const pollStep = {
+      name: `Poll deployment (${pollCount} polls)`,
+      status: deployStatus === "success" ? "pass" : "fail",
+      durationMs: pollDuration,
+      detail: `status=${deployStatus}`
+    };
+    if (deployStatus !== "success") {
+      pollStep.error = `Deploy ended with status '${deployStatus}'`;
+    }
+    steps.push(pollStep);
+    if (deployStatus !== "success") {
+      return buildResult17(steps, checkStart, "Deploy did not succeed");
+    }
+    const subdomainStart = performance.now();
+    let subdomainOk = false;
+    let lastSubError = "";
+    let subRetries = 0;
+    while (performance.now() - subdomainStart < SUBDOMAIN_TIMEOUT_MS) {
+      subRetries++;
+      try {
+        const controller = new AbortController;
+        const timer = setTimeout(() => controller.abort(), 5000);
+        const resp = await fetch(SUBDOMAIN_URL, {
+          signal: controller.signal,
+          headers: { Accept: "application/json" }
+        });
+        clearTimeout(timer);
+        if (resp.status === 200) {
+          subdomainOk = true;
+          break;
+        }
+        lastSubError = `status=${resp.status}`;
+      } catch (err) {
+        lastSubError = err instanceof Error ? err.message : String(err);
+      }
+      await sleep(SUBDOMAIN_RETRY_INTERVAL_MS);
+    }
+    const subdomainDuration = Math.round(performance.now() - subdomainStart);
+    const subStep = {
+      name: `GET ${SUBDOMAIN_URL} (verify live)`,
+      status: subdomainOk ? "pass" : "fail",
+      durationMs: subdomainDuration,
+      detail: subdomainOk ? `OK after ${subRetries} attempt(s)` : undefined
+    };
+    if (!subdomainOk) {
+      subStep.error = `Subdomain not reachable after ${subRetries} attempts: ${lastSubError}`;
+    }
+    steps.push(subStep);
+  } catch (err) {
+    steps.push({
+      name: "unexpected error",
+      status: "fail",
+      durationMs: 0,
+      error: err instanceof Error ? err.message : String(err)
+    });
+  } finally {
+    if (appId) {
+      try {
+        await http.delete(`/v1/apps/${appId}/environments/production`, "admin-key");
+        let delResp = null;
+        for (let attempt = 0;attempt < 5; attempt++) {
+          await sleep(3000);
+          delResp = await http.delete(`/v1/apps/${appId}`, "admin-key");
+          if (!delResp.error || delResp.status === 404 || delResp.status === 200 || delResp.status === 204) {
+            break;
+          }
+        }
+        if (delResp) {
+          steps.push(stepFromResponse16(`DELETE /v1/apps/${appId} (cleanup)`, delResp, [200, 204, 404]));
+        }
+      } catch (cleanupErr) {
+        steps.push({
+          name: "cleanup: delete app",
+          status: "fail",
+          durationMs: 0,
+          error: `Cleanup failed: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`
+        });
+      }
+    }
+  }
+  return buildResult17(steps, checkStart);
+}
+function buildResult17(steps, checkStart, errorMsg) {
+  const totalDuration = Math.round(performance.now() - checkStart);
+  let hasFail = false;
+  let hasSkip = false;
+  let hasPass = false;
+  for (const step of steps) {
+    if (step.status === "fail")
+      hasFail = true;
+    else if (step.status === "skip")
+      hasSkip = true;
+    else
+      hasPass = true;
+  }
+  const status = hasFail ? "fail" : !hasPass && hasSkip ? "skip" : hasSkip ? "warn" : "pass";
+  return {
+    name: "app-lifecycle",
+    status,
+    durationMs: totalDuration,
+    steps,
+    error: errorMsg
+  };
+}
+
 // src/canary/runner.ts
 var registry = [
   { name: "health", fn: healthCheck },
@@ -2093,7 +2766,11 @@ var registry = [
   { name: "ai-voice", fn: aiVoiceCheck },
   { name: "audit-logs", fn: auditLogsCheck },
   { name: "usage", fn: usageCheck },
-  { name: "storage", fn: storageCheck }
+  { name: "storage", fn: storageCheck },
+  { name: "functions", fn: functionsCheck },
+  { name: "deploy-health", fn: deployHealthCheck },
+  { name: "auth-flow", fn: authFlowCheck },
+  { name: "app-lifecycle", fn: appLifecycleCheck }
 ];
 async function runAllChecks() {
   const http = createHttpClient();
@@ -2263,6 +2940,7 @@ function buildDashboardHtml() {
     .summary-card .label { font-size: 0.75rem; color: #737373; text-transform: uppercase; margin-top: 0.25rem; }
     .status-pass { color: #4ade80; }
     .status-fail { color: #f87171; }
+    .status-warn { color: #fb923c; }
     .status-skip { color: #fbbf24; }
     .timestamp { text-align: center; color: #737373; font-size: 0.8rem; margin-bottom: 1.5rem; }
     .check {
@@ -2289,6 +2967,7 @@ function buildDashboardHtml() {
     }
     .dot-pass { background: #4ade80; }
     .dot-fail { background: #f87171; }
+    .dot-warn { background: #fb923c; }
     .dot-skip { background: #fbbf24; }
     .check-name { font-weight: 600; flex-grow: 1; }
     .check-duration { color: #737373; font-size: 0.8rem; }
@@ -2370,6 +3049,7 @@ function buildDashboardHtml() {
       html += '<div class="summary">';
       html += '<div class="summary-card"><div class="value status-pass">' + r.summary.pass + '</div><div class="label">Pass</div></div>';
       html += '<div class="summary-card"><div class="value status-fail">' + r.summary.fail + '</div><div class="label">Fail</div></div>';
+      html += '<div class="summary-card"><div class="value status-warn">' + r.summary.warn + '</div><div class="label">Warn</div></div>';
       html += '<div class="summary-card"><div class="value status-skip">' + r.summary.skip + '</div><div class="label">Skip</div></div>';
       html += '<div class="summary-card"><div class="value" style="color:#e5e5e5">' + r.summary.total + '</div><div class="label">Total</div></div>';
       html += '</div>';
@@ -2395,6 +3075,7 @@ function buildDashboardHtml() {
           const st = ch.steps[j];
           const icon = st.status === 'pass' ? '<span style="color:#4ade80">&#10003;</span>'
                      : st.status === 'fail' ? '<span style="color:#f87171">&#10007;</span>'
+                     : st.status === 'warn' ? '<span style="color:#fb923c">&#9888;</span>'
                      : '<span style="color:#fbbf24">&#9679;</span>';
           html += '<div class="step">';
           html += '<span class="step-icon">' + icon + '</span>';
@@ -2440,7 +3121,16 @@ function buildDashboardHtml() {
 
       try {
         const resp = await fetch('/canary');
-        const data = await resp.json();
+        const text = await resp.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          throw new Error(resp.status + ' \u2014 ' + text.slice(0, 200));
+        }
+        if (data.error) {
+          throw new Error(data.error);
+        }
         renderReport(data);
       } catch (err) {
         const c = document.getElementById('report-container');
@@ -2463,6 +3153,7 @@ function buildDashboardHtml() {
 var server = Bun.serve({
   port,
   hostname,
+  idleTimeout: 120,
   async fetch(req) {
     const url = new URL(req.url);
     const path = url.pathname;

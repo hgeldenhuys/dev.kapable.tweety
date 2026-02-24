@@ -1,0 +1,8 @@
+framework: bun-server
+
+env:
+  KAPABLE_API_URL: "https://api.kapable.dev"
+  KAPABLE_API_KEY: "sk_live_tw24_canary_tweety_sprint_k_2026"
+  KAPABLE_ADMIN_KEY: "sk_admin_1e9410b9f969a72ce53b376e3ac9b342"
+  KAPABLE_ORG_ID: "1269c487-dfb7-461a-ac6d-8e9d1d038331"
+  KAPABLE_PROJECT_ID: "2480d50d-a2e5-4617-949f-a5c371b5ce41"
