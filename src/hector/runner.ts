@@ -8,6 +8,7 @@ import { flowCrudCheck } from "./checks/flow-crud";
 import { flowExecutionCheck } from "./checks/flow-execution";
 import { flowGateCheck } from "./checks/flow-gate";
 import { flowScoringCheck } from "./checks/flow-scoring";
+import { functionCallCheck } from "./checks/function-call";
 
 /**
  * A registered check: name + function that produces a CheckResult.
@@ -26,6 +27,7 @@ const registry: RegisteredCheck[] = [
   { name: "flow-execution", fn: flowExecutionCheck },
   { name: "flow-gate", fn: flowGateCheck },
   { name: "flow-scoring", fn: flowScoringCheck },
+  { name: "function-call", fn: functionCallCheck },
 ];
 
 /**
