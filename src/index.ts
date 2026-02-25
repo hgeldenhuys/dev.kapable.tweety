@@ -15,6 +15,7 @@ import type { CanaryReport } from "./canary/types";
 import { runAllChecks, runCheck, getCheckNames } from "./canary/runner";
 import { runAllHectorChecks, runHectorCheck, getHectorCheckNames } from "./hector/runner";
 import { APP_LIFECYCLE_PLAN } from "./sylvester/app-lifecycle";
+import { FUNCTION_CALL_PLAN } from "./sylvester/function-call";
 
 const port = Number(process.env.PORT) || 3000;
 const hostname = "0.0.0.0";
@@ -363,6 +364,11 @@ const server = Bun.serve({
     // GET /sylvester/app-lifecycle -- Sylvester E2E UAT plan (UI-only steps, executed by Chrome MCP)
     if (path === "/sylvester/app-lifecycle") {
       return Response.json(APP_LIFECYCLE_PLAN);
+    }
+
+    // GET /sylvester/function-call -- Sylvester E2E function lifecycle plan (UI-only steps)
+    if (path === "/sylvester/function-call") {
+      return Response.json(FUNCTION_CALL_PLAN);
     }
 
     // GET /canary -- Run all checks

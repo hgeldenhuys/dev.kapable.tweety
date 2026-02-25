@@ -18,6 +18,7 @@ import { auditLogsCheck } from "./checks/audit-logs";
 import { usageCheck } from "./checks/usage";
 import { storageCheck } from "./checks/storage";
 import { functionsCheck } from "./checks/functions";
+import { functionCallCheck } from "./checks/function-call";
 import { deployHealthCheck } from "./checks/deploy-health";
 import { authFlowCheck } from "./checks/auth-flow";
 import { appLifecycleCheck } from "./checks/app-lifecycle";
@@ -49,6 +50,7 @@ const registry: RegisteredCheck[] = [
   { name: "usage", fn: usageCheck },
   { name: "storage", fn: storageCheck },
   { name: "functions", fn: functionsCheck },
+  { name: "function-call", fn: functionCallCheck },
   { name: "deploy-health", fn: deployHealthCheck },
   { name: "auth-flow", fn: authFlowCheck },
   { name: "app-lifecycle", fn: appLifecycleCheck },
