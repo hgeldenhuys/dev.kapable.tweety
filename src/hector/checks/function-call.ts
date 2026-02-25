@@ -3,7 +3,8 @@
  * calls it via the synchronous /call endpoint, verifies output
  * and mutation results, then cleans up.
  *
- * Tests: function create → compile → /call → Data ABI mutations → cleanup
+ * Tests: function create → compile → /call → Data ABI mutations
+ * Note: test function is left visible for canary observability; pre-cleanup handles lifecycle on next run.
  *
  * Requires KAPABLE_APP_ID and KAPABLE_ENV_NAME env vars.
  */
@@ -223,14 +224,9 @@ export async function functionCallCheck(http: HttpClient): Promise<CheckResult> 
       }
     }
 
-    // Step 4: Delete the function
-    const deleteResp = await http.delete(`${functionsPath}/${functionId}`, "admin-key");
-    steps.push(
-      stepFromResponse(`DELETE .../functions/${functionId} (cleanup)`, deleteResp, 204),
-    );
-    if (deleteResp.status === 204) {
-      functionId = null; // Already cleaned up
-    }
+    // Canary observability: leave the test function visible in the console.
+    // Pre-cleanup at the top of the next run handles lifecycle.
+    functionId = null; // Prevent finally block from deleting
   } catch (err: unknown) {
     steps.push({
       name: "unexpected error",
