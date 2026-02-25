@@ -9,6 +9,7 @@ import { flowExecutionCheck } from "./checks/flow-execution";
 import { flowGateCheck } from "./checks/flow-gate";
 import { flowScoringCheck } from "./checks/flow-scoring";
 import { functionCallCheck } from "./checks/function-call";
+import { paigeTriageCheck } from "./checks/paige-triage";
 
 /**
  * A registered check: name + function that produces a CheckResult.
@@ -20,7 +21,7 @@ interface RegisteredCheck {
 
 /**
  * The global check registry. Order matters -- checks run sequentially.
- * CRUD first (smoke test), then execution, gate routing, and scoring.
+ * CRUD first (smoke test), then execution, gate routing, scoring, triage.
  */
 const registry: RegisteredCheck[] = [
   { name: "flow-crud", fn: flowCrudCheck },
@@ -28,6 +29,7 @@ const registry: RegisteredCheck[] = [
   { name: "flow-gate", fn: flowGateCheck },
   { name: "flow-scoring", fn: flowScoringCheck },
   { name: "function-call", fn: functionCallCheck },
+  { name: "paige-triage", fn: paigeTriageCheck },
 ];
 
 /**
