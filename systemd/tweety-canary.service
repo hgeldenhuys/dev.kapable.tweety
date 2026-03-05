@@ -1,0 +1,66 @@
+# tweety-canary.service — One-shot canary trigger for Tweety.
+#
+# This service is invoked by tweety-canary.timer every 15 minutes.
+# It hits the /canary endpoint on the local Tweety HTTP server, which runs
+# all registered checks sequentially and stores the report in memory.
+#
+# The Tweety process (managed by tweety.service) must be running for this
+# to succeed. If Tweety is not up, curl exits non-zero and systemd logs the
+# failure — the timer will retry at the next scheduled interval.
+#
+# Installation:
+#   sudo install -m 644 tweety-canary.service /etc/systemd/system/
+#   sudo install -m 644 tweety-canary.timer   /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now tweety-canary.timer
+#   sudo systemctl status tweety-canary.timer
+
+[Unit]
+Description=Tweety Platform Canary — Scheduled check run
+Documentation=https://github.com/kapable/dev.kapable.tweety
+# Only run if Tweety is active; silently skip otherwise
+After=tweety.service
+# Do NOT set BindsTo= — we prefer a no-op skip over a blocking dependency
+
+[Service]
+Type=oneshot
+
+# The port Tweety listens on (matches PORT env in tweety.service)
+Environment=TWEETY_PORT=3000
+
+# Timeout: allow up to 4 minutes for a full canary run (app-lifecycle is slow)
+TimeoutStartSec=300
+
+# Run as the same user that owns the Tweety process
+User=deploy
+Group=deploy
+
+# Hit the /canary endpoint. Result is logged by journald via stdout.
+# --silent suppresses progress meter; --show-error still prints curl errors.
+# --fail-with-body returns exit 22 on HTTP >=400, so systemd records failures.
+# --max-time enforces a wall-clock deadline independent of TimeoutStartSec.
+ExecStart=/usr/bin/curl \
+    --silent \
+    --show-error \
+    --fail-with-body \
+    --max-time 270 \
+    http://localhost:${TWEETY_PORT}/canary
+
+# Persist the JSON report to disk so it survives a Tweety restart.
+# jq is optional — if absent, the raw JSON is still written.
+ExecStartPost=/bin/sh -c \
+    'curl --silent --max-time 10 http://localhost:${TWEETY_PORT}/canary \
+     > /opt/kapable/tweety/last-canary-report.json 2>/dev/null || true'
+
+# Restart policy: never restart a one-shot on failure — the timer handles rescheduling.
+Restart=no
+
+# Sandbox: only needs network (lo) and filesystem access to /opt/kapable/tweety/
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/kapable/tweety
+
+[Install]
+# Not directly enabled — activated exclusively via the .timer unit
+WantedBy=multi-user.target

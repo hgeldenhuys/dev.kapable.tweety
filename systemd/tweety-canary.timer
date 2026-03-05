@@ -1,0 +1,52 @@
+# tweety-canary.timer — Periodic trigger for the Tweety platform canary.
+#
+# Fires tweety-canary.service every 15 minutes to run all registered canary
+# checks against the live Kapable API. Results are stored in Tweety's
+# in-memory lastReport and written to /opt/kapable/tweety/last-canary-report.json.
+#
+# Design notes:
+#   - OnBootSec=2min — delay first run after boot to let Tweety finish starting.
+#   - OnUnitActiveSec=15min — subsequent runs every 15 minutes from the last start.
+#   - AccuracySec=30s — allows systemd to batch timer wakeups within a 30-second
+#     window for power efficiency. Canary latency tolerance is high enough for this.
+#   - Persistent=true — if the system was off during a scheduled run, the timer
+#     fires once on the next boot (catches up on missed intervals). Without this,
+#     a reboot during a scheduled window silently skips the run.
+#   - RandomizedDelaySec=60s — staggers timer fire across multiple hosts to avoid
+#     thundering-herd against the Kapable API (relevant in multi-node setups).
+#
+# Installation:
+#   sudo install -m 644 tweety-canary.timer   /etc/systemd/system/
+#   sudo install -m 644 tweety-canary.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now tweety-canary.timer
+#
+# Verification:
+#   systemctl list-timers tweety-canary.timer
+#   journalctl -u tweety-canary.service -n 50
+
+[Unit]
+Description=Tweety Platform Canary — 15-minute schedule
+Documentation=https://github.com/kapable/dev.kapable.tweety
+
+[Timer]
+# First run: 2 minutes after the timer unit is started (e.g. after boot)
+OnBootSec=2min
+
+# Subsequent runs: every 15 minutes after the last run started
+OnUnitActiveSec=15min
+
+# Allow up to 30 seconds of jitter for power-efficiency batching
+AccuracySec=30s
+
+# Up to 60-second random delay to spread load across multiple nodes
+RandomizedDelaySec=60s
+
+# Catch up on missed runs after a system downtime (fires once on next boot)
+Persistent=true
+
+# The service to activate when the timer fires
+Unit=tweety-canary.service
+
+[Install]
+WantedBy=timers.target
