@@ -22,6 +22,7 @@ import { functionCallCheck } from "./checks/function-call";
 import { deployHealthCheck } from "./checks/deploy-health";
 import { authFlowCheck } from "./checks/auth-flow";
 import { appLifecycleCheck } from "./checks/app-lifecycle";
+import { sshConnectivityCheck } from "./checks/ssh-connectivity";
 
 /**
  * A registered check: name + function that produces a CheckResult.
@@ -54,6 +55,7 @@ const registry: RegisteredCheck[] = [
   { name: "deploy-health", fn: deployHealthCheck },
   { name: "auth-flow", fn: authFlowCheck },
   { name: "app-lifecycle", fn: appLifecycleCheck },
+  { name: "ssh-connectivity", fn: sshConnectivityCheck },
 ];
 
 /**
