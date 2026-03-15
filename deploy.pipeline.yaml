@@ -7,7 +7,6 @@ variables:
   APP_ID: ""
   DEPLOY_TOKEN: ""
   RUN_ID_SHORT: ""
-  SLOT_NAME: "preview-${{ variables.RUN_ID_SHORT }}"
   PORT: "3000"
   ENV_NAME: "production"
 
@@ -40,15 +39,16 @@ stages:
         id: create-slot
         label: "Create preview slot with container"
         command: |
+          SLOT="preview-${{ variables.RUN_ID_SHORT }}"
           RESP=$(curl -sf -X POST \
             "${{ variables.API_URL }}/v1/apps/${{ variables.APP_ID }}/environments/${{ variables.ENV_NAME }}/slots" \
             -H "x-api-key: ${{ variables.DEPLOY_TOKEN }}" \
             -H "Content-Type: application/json" \
-            -d '{
-              "slot_name": "${{ variables.SLOT_NAME }}",
-              "weight": 0,
-              "provision": {"source": "fresh"}
-            }')
+            -d "{
+              \"slot_name\": \"$SLOT\",
+              \"weight\": 0,
+              \"provision\": {\"source\": \"fresh\"}
+            }")
           echo "$RESP" | jq .
 
   - id: deploy
@@ -60,8 +60,9 @@ stages:
         id: upload
         label: "Upload tarball to slot"
         command: |
+          SLOT="preview-${{ variables.RUN_ID_SHORT }}"
           curl -sf -X POST \
-            "${{ variables.API_URL }}/v1/apps/${{ variables.APP_ID }}/environments/${{ variables.ENV_NAME }}/slots/${{ variables.SLOT_NAME }}/upload?install_cmd=bun+install&port=${{ variables.PORT }}" \
+            "${{ variables.API_URL }}/v1/apps/${{ variables.APP_ID }}/environments/${{ variables.ENV_NAME }}/slots/$SLOT/upload?install_cmd=bun+install&port=${{ variables.PORT }}" \
             -H "x-api-key: ${{ variables.DEPLOY_TOKEN }}" \
             -H "Content-Type: application/octet-stream" \
             --data-binary @/tmp/tweety-deploy.tar.gz \
@@ -71,23 +72,24 @@ stages:
         id: health
         label: "Wait for healthy"
         command: |
+          SLOT="preview-${{ variables.RUN_ID_SHORT }}"
           RESP=$(curl -sf -X POST \
-            "${{ variables.API_URL }}/v1/apps/${{ variables.APP_ID }}/environments/${{ variables.ENV_NAME }}/slots/${{ variables.SLOT_NAME }}/health" \
+            "${{ variables.API_URL }}/v1/apps/${{ variables.APP_ID }}/environments/${{ variables.ENV_NAME }}/slots/$SLOT/health" \
             -H "x-api-key: ${{ variables.DEPLOY_TOKEN }}" \
             -H "Content-Type: application/json" \
-            -d '{
-              "path": "/health",
-              "port": ${{ variables.PORT }},
-              "max_attempts": 30,
-              "interval_ms": 1000
-            }')
+            -d "{
+              \"path\": \"/health\",
+              \"port\": ${{ variables.PORT }},
+              \"max_attempts\": 30,
+              \"interval_ms\": 1000
+            }")
           echo "$RESP" | jq .
           HEALTHY=$(echo "$RESP" | jq -r '.healthy')
           if [ "$HEALTHY" != "true" ]; then
-            echo "ERROR: Health check failed after $(echo $RESP | jq -r '.attempts') attempts"
+            echo "ERROR: Health check failed"
             exit 1
           fi
-          echo "Healthy after $(echo $RESP | jq -r '.attempts') attempts ($(echo $RESP | jq -r '.duration_ms')ms)"
+          echo "Healthy after $(echo $RESP | jq -r '.attempts') attempts"
 
   - id: gate
     label: "Approval Gate"
@@ -98,15 +100,16 @@ stages:
         id: request-approval
         label: "Awaiting human approval"
         command: |
+          SLOT="preview-${{ variables.RUN_ID_SHORT }}"
           curl -sf -X POST \
             "${{ variables.API_URL }}/v1/pipeline-runs/$PIPELINE_RUN_ID/request-approval" \
             -H "x-api-key: ${{ variables.DEPLOY_TOKEN }}" \
             -H "Content-Type: application/json" \
-            -d '{
-              "slot_name": "${{ variables.SLOT_NAME }}",
-              "app_id": "${{ variables.APP_ID }}",
-              "env_name": "${{ variables.ENV_NAME }}"
-            }' | jq .
+            -d "{
+              \"slot_name\": \"$SLOT\",
+              \"app_id\": \"${{ variables.APP_ID }}\",
+              \"env_name\": \"${{ variables.ENV_NAME }}\"
+            }" | jq .
           echo "Preview ready — click Promote or Cancel in the console."
 
 finally:
@@ -117,8 +120,9 @@ finally:
         id: delete-slot
         label: "Delete failed preview slot"
         command: |
+          SLOT="preview-${{ variables.RUN_ID_SHORT }}"
           curl -sf -X DELETE \
-            "${{ variables.API_URL }}/v1/apps/${{ variables.APP_ID }}/environments/${{ variables.ENV_NAME }}/slots/${{ variables.SLOT_NAME }}" \
+            "${{ variables.API_URL }}/v1/apps/${{ variables.APP_ID }}/environments/${{ variables.ENV_NAME }}/slots/$SLOT" \
             -H "x-api-key: ${{ variables.DEPLOY_TOKEN }}" \
           || echo "Slot cleanup failed (may not exist)"
           rm -f /tmp/tweety-deploy.tar.gz
