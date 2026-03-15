@@ -89,10 +89,35 @@ stages:
           fi
           echo "Healthy after $(echo $RESP | jq -r '.attempts') attempts ($(echo $RESP | jq -r '.duration_ms')ms)"
 
+  - id: gate
+    label: "Approval Gate"
+    depends_on:
+      - deploy
+    timeout_secs: 3600
+    steps:
+      - type: bash
+        id: approval-gate
+        label: "Waiting for approval..."
+        command: |
+          echo "Preview deployed — waiting for approval to promote to production."
+          echo "Approve at: ${{ variables.API_URL }}/v1/pipeline-runs/$PIPELINE_RUN_ID/approve"
+          for i in $(seq 1 360); do
+            EVENTS=$(curl -sf "${{ variables.API_URL }}/v1/pipeline-runs/$PIPELINE_RUN_ID/events/history" \
+              -H "x-api-key: ${{ variables.DEPLOY_TOKEN }}")
+            APPROVED=$(echo "$EVENTS" | jq -r '.data[] | select(.kind == "approval_granted") | .kind' | head -1)
+            if [ "$APPROVED" = "approval_granted" ]; then
+              echo "Approved! Proceeding to promote."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "ERROR: Approval timed out after 1 hour"
+          exit 1
+
   - id: promote
     label: "Promote to Production"
     depends_on:
-      - deploy
+      - gate
     steps:
       - type: bash
         id: promote-slot
