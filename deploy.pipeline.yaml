@@ -2,13 +2,6 @@ name: deploy-tweety
 description: "Build, upload, health-check — then wait for human approval to promote"
 concurrency_group: tweety-deploy
 
-variables:
-  API_URL: "https://api.kapable.dev"
-  APP_ID: ""
-  DEPLOY_TOKEN: ""
-  RUN_ID_SHORT: ""
-  ENV_NAME: "production"
-
 stages:
   - id: build
     label: "Build & Package"
@@ -18,109 +11,33 @@ stages:
         label: "Install dependencies"
         command: bun install
 
-      - type: bash
-        id: package
-        label: "Create deployment tarball"
-        command: |
-          tar czf /tmp/tweety-deploy.tar.gz \
-            --exclude=node_modules \
-            --exclude=.git \
-            --exclude=dist \
-            -C . .
-          echo "Tarball size: $(du -h /tmp/tweety-deploy.tar.gz | cut -f1)"
-
-  - id: provision
-    label: "Provision Slot"
+  - id: deploy
+    label: "Deploy to Preview"
     depends_on:
       - build
     steps:
-      - type: bash
-        id: create-slot
-        label: "Create preview slot with container"
-        command: |
-          SLOT="preview-${{ variables.RUN_ID_SHORT }}"
-          RESP=$(curl -sf -X POST \
-            "${{ variables.API_URL }}/v1/apps/${{ variables.APP_ID }}/environments/${{ variables.ENV_NAME }}/slots" \
-            -H "x-api-key: ${{ variables.DEPLOY_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"slot_name\": \"$SLOT\",
-              \"weight\": 0,
-              \"provision\": {\"source\": \"fresh\"}
-            }")
-          echo "$RESP" | jq .
+      - type: slot-provision
+        id: provision
 
-  - id: deploy
-    label: "Upload & Verify"
-    depends_on:
-      - provision
-    steps:
-      - type: bash
+      - type: slot-upload
         id: upload
-        label: "Upload tarball to slot"
-        command: |
-          SLOT="preview-${{ variables.RUN_ID_SHORT }}"
-          curl -sf -X POST \
-            "${{ variables.API_URL }}/v1/apps/${{ variables.APP_ID }}/environments/${{ variables.ENV_NAME }}/slots/$SLOT/upload?install_cmd=bun+install" \
-            -H "x-api-key: ${{ variables.DEPLOY_TOKEN }}" \
-            -H "Content-Type: application/octet-stream" \
-            --data-binary @/tmp/tweety-deploy.tar.gz \
-          | jq .
+        install_cmd: bun install
 
-      - type: bash
+      - type: slot-health
         id: health
-        label: "Wait for healthy"
-        command: |
-          SLOT="preview-${{ variables.RUN_ID_SHORT }}"
-          RESP=$(curl -sf -X POST \
-            "${{ variables.API_URL }}/v1/apps/${{ variables.APP_ID }}/environments/${{ variables.ENV_NAME }}/slots/$SLOT/health" \
-            -H "x-api-key: ${{ variables.DEPLOY_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"path\": \"/health\",
-              \"max_attempts\": 30,
-              \"interval_ms\": 1000
-            }")
-          echo "$RESP" | jq .
-          HEALTHY=$(echo "$RESP" | jq -r '.healthy')
-          if [ "$HEALTHY" != "true" ]; then
-            echo "ERROR: Health check failed"
-            exit 1
-          fi
-          echo "Healthy after $(echo $RESP | jq -r '.attempts') attempts"
 
   - id: gate
     label: "Approval Gate"
     depends_on:
       - deploy
     steps:
-      - type: bash
-        id: request-approval
-        label: "Awaiting human approval"
-        command: |
-          SLOT="preview-${{ variables.RUN_ID_SHORT }}"
-          curl -sf -X POST \
-            "${{ variables.API_URL }}/v1/pipeline-runs/$PIPELINE_RUN_ID/request-approval" \
-            -H "x-api-key: ${{ variables.DEPLOY_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"slot_name\": \"$SLOT\",
-              \"app_id\": \"${{ variables.APP_ID }}\",
-              \"env_name\": \"${{ variables.ENV_NAME }}\"
-            }" | jq .
-          echo "Preview ready — click Promote or Cancel in the console."
+      - type: approval
+        id: approve
+        message: "Tweety preview deployed — promote to production?"
 
 finally:
-  - id: cleanup-on-failure
+  - id: cleanup
     run_on: on_failure
     steps:
-      - type: bash
-        id: delete-slot
-        label: "Delete failed preview slot"
-        command: |
-          SLOT="preview-${{ variables.RUN_ID_SHORT }}"
-          curl -sf -X DELETE \
-            "${{ variables.API_URL }}/v1/apps/${{ variables.APP_ID }}/environments/${{ variables.ENV_NAME }}/slots/$SLOT" \
-            -H "x-api-key: ${{ variables.DEPLOY_TOKEN }}" \
-          || echo "Slot cleanup failed (may not exist)"
-          rm -f /tmp/tweety-deploy.tar.gz
+      - type: slot-cleanup
+        id: cleanup
