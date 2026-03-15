@@ -7,7 +7,6 @@ variables:
   APP_ID: ""
   DEPLOY_TOKEN: ""
   RUN_ID_SHORT: ""
-  PORT: "3000"
   ENV_NAME: "production"
 
 stages:
@@ -62,7 +61,7 @@ stages:
         command: |
           SLOT="preview-${{ variables.RUN_ID_SHORT }}"
           curl -sf -X POST \
-            "${{ variables.API_URL }}/v1/apps/${{ variables.APP_ID }}/environments/${{ variables.ENV_NAME }}/slots/$SLOT/upload?install_cmd=bun+install&port=${{ variables.PORT }}" \
+            "${{ variables.API_URL }}/v1/apps/${{ variables.APP_ID }}/environments/${{ variables.ENV_NAME }}/slots/$SLOT/upload?install_cmd=bun+install" \
             -H "x-api-key: ${{ variables.DEPLOY_TOKEN }}" \
             -H "Content-Type: application/octet-stream" \
             --data-binary @/tmp/tweety-deploy.tar.gz \
@@ -79,7 +78,6 @@ stages:
             -H "Content-Type: application/json" \
             -d "{
               \"path\": \"/health\",
-              \"port\": ${{ variables.PORT }},
               \"max_attempts\": 30,
               \"interval_ms\": 1000
             }")
