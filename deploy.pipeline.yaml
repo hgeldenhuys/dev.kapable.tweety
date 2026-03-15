@@ -31,7 +31,7 @@ stages:
     depends_on:
       - deploy
     steps:
-      - type: approval
+      - type: slot-gate
         id: approve
         message: "Tweety preview deployed — promote to production?"
 
