@@ -98,10 +98,11 @@ stages:
       - type: bash
         id: approval-gate
         label: "Waiting for approval..."
+        timeout_secs: 3600
         command: |
           echo "Preview deployed — waiting for approval to promote to production."
-          echo "Approve at: ${{ variables.API_URL }}/v1/pipeline-runs/$PIPELINE_RUN_ID/approve"
-          for i in $(seq 1 360); do
+          echo "Click Approve in the console to continue."
+          for i in $(seq 1 720); do
             EVENTS=$(curl -sf "${{ variables.API_URL }}/v1/pipeline-runs/$PIPELINE_RUN_ID/events/history" \
               -H "x-api-key: ${{ variables.DEPLOY_TOKEN }}")
             APPROVED=$(echo "$EVENTS" | jq -r '.data[] | select(.kind == "approval_granted") | .kind' | head -1)
@@ -109,7 +110,7 @@ stages:
               echo "Approved! Proceeding to promote."
               exit 0
             fi
-            sleep 10
+            sleep 5
           done
           echo "ERROR: Approval timed out after 1 hour"
           exit 1
