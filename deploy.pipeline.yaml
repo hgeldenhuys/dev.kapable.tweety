@@ -1,5 +1,5 @@
 name: deploy-tweety
-description: "Build, upload, health-check, and promote Tweety canary app"
+description: "Build, upload, health-check — then wait for human approval to promote"
 concurrency_group: tweety-deploy
 
 variables:
@@ -89,46 +89,20 @@ stages:
           fi
           echo "Healthy after $(echo $RESP | jq -r '.attempts') attempts ($(echo $RESP | jq -r '.duration_ms')ms)"
 
-  - id: gate
-    label: "Approval Gate"
-    depends_on:
-      - deploy
-    timeout_secs: 3600
-    steps:
       - type: bash
-        id: approval-gate
-        label: "Waiting for approval..."
-        timeout_secs: 3600
-        command: |
-          echo "Preview deployed — waiting for approval to promote to production."
-          echo "Click Approve in the console to continue."
-          for i in $(seq 1 720); do
-            EVENTS=$(curl -sf "${{ variables.API_URL }}/v1/pipeline-runs/$PIPELINE_RUN_ID/events/history" \
-              -H "x-api-key: ${{ variables.DEPLOY_TOKEN }}")
-            APPROVED=$(echo "$EVENTS" | jq -r '.data[] | select(.kind == "approval_granted") | .kind' | head -1)
-            if [ "$APPROVED" = "approval_granted" ]; then
-              echo "Approved! Proceeding to promote."
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "ERROR: Approval timed out after 1 hour"
-          exit 1
-
-  - id: promote
-    label: "Promote to Production"
-    depends_on:
-      - gate
-    steps:
-      - type: bash
-        id: promote-slot
-        label: "Swap traffic to new slot"
+        id: request-approval
+        label: "Request approval"
         command: |
           curl -sf -X POST \
-            "${{ variables.API_URL }}/v1/apps/${{ variables.APP_ID }}/environments/${{ variables.ENV_NAME }}/slots/${{ variables.SLOT_NAME }}/promote" \
+            "${{ variables.API_URL }}/v1/pipeline-runs/$PIPELINE_RUN_ID/request-approval" \
             -H "x-api-key: ${{ variables.DEPLOY_TOKEN }}" \
-          | jq .
-          echo "Promoted ${{ variables.SLOT_NAME }} to production"
+            -H "Content-Type: application/json" \
+            -d '{
+              "slot_name": "${{ variables.SLOT_NAME }}",
+              "app_id": "${{ variables.APP_ID }}",
+              "env_name": "${{ variables.ENV_NAME }}"
+            }' | jq .
+          echo "Preview ready — waiting for approval in console."
 
 finally:
   - id: cleanup-on-failure
